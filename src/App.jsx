@@ -1,5 +1,6 @@
 import "./styles.css";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+
 import { useReducer } from "react";
 import { Header } from "./components/Header";
 import { Title } from "./components/Title";
@@ -7,6 +8,7 @@ import { Menu } from "./components/Menu";
 import { Order } from "./components/Order";
 import { Footer } from "./components/Footer";
 import { TimeSelect } from "./components/TimeSelect";
+import { loadSquareSdk } from "./squarePayments";
 import { Api } from "./api";
 import {
   buildOrderItems,
@@ -253,9 +255,27 @@ const screenState = (state, action) => {
 // ------ 本体 ------
 
 export const App = () => {
+  //＜DANGER:本番は必ずfalseにすること＞
+  const USE_MOCK_PAYMENT = true;
+
   //予約時刻を保持するための状態;
   const [selectedTime, setSelectedTime] = useState(null);
   const [state, dispatch] = useReducer(screenState, initialState);
+
+  // 支払い段階の表示制御："connecting" → "input"
+  const [paymentPhase, setPaymentPhase] = useState("connecting");
+  const paymentTimerRef = useRef(null);
+
+  // payment 結果（paymentResult で使う）
+  const [paymentOutcome, setPaymentOutcome] = useState({
+    ok: false,
+    orderId: null,
+    error: null,
+    receiptUrl: null,
+  });
+
+  const [usingDevCfg, setUsingDevCfg] = useState(false);
+
   const goto = (s) => dispatch({ type: "GOTO", step: s });
   const next = () => {
     if (state.step === "menu" && calculateNumberOfDrinksInMenu() === 0) {
@@ -265,9 +285,6 @@ export const App = () => {
       // drinkからカート画面に移る時、cartを整理
       dispatch({ type: "ORGANIZE_CART" });
       dispatch({ type: "NEXT" });
-      useEffect(() => {
-        console.log("cart updated:", state.cart);
-      }, [state.cart]);
     } else {
       dispatch({ type: "NEXT" });
     }
@@ -315,6 +332,291 @@ export const App = () => {
       prices[40] * state.cart[40] +
       prices[50] * state.cart[50]
     );
+  };
+
+  // Square Card のインスタンス保持
+  const cardRef = useRef(null);
+
+  // card-container の中身をクリア
+  function clearCardContainer() {
+    const el = document.getElementById("card-container");
+    if (el) el.innerHTML = "";
+  }
+
+  // 既存カードUIの破棄（存在すれば）
+  async function destroyCardIfAny() {
+    try {
+      if (cardRef.current && typeof cardRef.current.destroy === "function") {
+        await cardRef.current.destroy();
+      }
+    } catch (_) {
+      // destroy未対応でも無視
+    } finally {
+      cardRef.current = null;
+      clearCardContainer();
+    }
+  }
+
+  function pTimeout(promise, ms, msg = "attach timeout") {
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(msg)), ms);
+      promise
+        .then((v) => {
+          clearTimeout(t);
+          resolve(v);
+        })
+        .catch((e) => {
+          clearTimeout(t);
+          reject(e);
+        });
+    });
+  }
+
+  // 入力フェーズで #card-container に attach（必要なら再attach）
+  async function ensureCardMounted(applicationId, locationId) {
+    // DOM描画を待つユーティリティ
+    function nextFrame() {
+      return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    async function waitForContainer() {
+      // 最大3フレームだけ待ってから判定
+      for (let i = 0; i < 3; i++) {
+        const el = document.getElementById("card-container");
+        if (el) return el;
+        await nextFrame();
+      }
+      console.error(
+        "DEBUG: waitForContainerがタイムアウトしました。DOMが見つかりません。"
+      );
+      return null;
+    }
+    if (!window.Square) throw new Error("Square SDKが読み込まれていません");
+    // すぐgetElementByIdせず、描画を最長3フレーム待つ
+    const container = await waitForContainer();
+    if (!container) throw new Error("#card-container が見つかりません");
+
+    // 既に作ってあるがDOMから外れている場合は再attach
+    if (cardRef.current && container.childElementCount === 0) {
+      try {
+        await pTimeout(
+          cardRef.current.attach("#card-container"),
+          5000,
+          "カードUIの attach がタイムアウトしました。\n" +
+            "・埋め込みプレビューではなく新規タブで開く\n" +
+            "・Square の Allowed origins に現在のURLを登録"
+        );
+        return;
+      } catch {
+        await destroyCardIfAny();
+      }
+      // まだ無ければ新規作成して attach
+      if (!cardRef.current) {
+        let payments;
+        try {
+          payments = window.Square.payments(applicationId, locationId);
+        } catch (e) {
+          throw new Error(
+            "Square.payments の初期化に失敗: " +
+              (e?.message || "") +
+              "\n→ Developer Console の Allowed origins（Allowed domains）に\n" +
+              window.location.origin +
+              " を追加してください。"
+          );
+        }
+
+        const card = await payments.card();
+        await pTimeout(
+          card.attach("#card-container"),
+          5000,
+          "カードUIの attach がタイムアウトしました。\n" +
+            "・新規タブで開く\n・Allowed origins に " +
+            window.location.origin +
+            " を登録"
+        );
+        cardRef.current = card;
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (state.step !== "payment") return;
+
+    setPaymentPhase("connecting");
+    if (paymentTimerRef.current) clearTimeout(paymentTimerRef.current);
+    destroyCardIfAny(); // 古いUI掃除
+
+    paymentTimerRef.current = setTimeout(async () => {
+      try {
+        const cfg = await Api.getSquareConfig();
+        await loadSquareSdk(cfg?.environment || "PRODUCTION");
+        setPaymentPhase("input"); // ← ここでは切り替えだけ（DOMはまだ）
+      } catch (e) {
+        alert(e?.message || "決済モジュールの初期化に失敗しました");
+        dispatch({ type: "GOTO", step: "cart" });
+      }
+    }, 1000);
+
+    return () => {
+      if (paymentTimerRef.current) clearTimeout(paymentTimerRef.current);
+      destroyCardIfAny();
+    };
+  }, [state.step]);
+
+  useEffect(() => {
+    if (state.step !== "payment") return;
+    if (paymentPhase !== "input") return;
+
+    const attachTimer = setTimeout(() => {
+      (async () => {
+        try {
+          const cfg = await Api.getSquareConfig();
+          // DOMが描画された後に確実に ensureCardMounted を実行
+          await ensureCardMounted(cfg.applicationId, cfg.locationId);
+        } catch (e) {
+          alert(e?.message || "#card-container の初期化に失敗しました");
+          dispatch({ type: "GOTO", step: "cart" });
+        }
+      })();
+    }, 100); // 100ミリ秒のわずかな遅延を設定
+
+    return () => {
+      clearTimeout(attachTimer); // クリーンアップ関数にタイマーのクリアを追加
+    };
+  }, [state.step, paymentPhase]);
+
+  const canUseCookies = async () => {
+    try {
+      const key = "__cm_cookie_test";
+      setCookieStr(key, "1", { minutes: 1 });
+      const v = getCookieStr(key);
+      deleteCookie(key);
+      return v === "1";
+    } catch {
+      return false;
+    }
+  };
+
+  // JPY用の 3DS 検証情報を作る（金額は円の整数文字列）
+  function buildVerificationDetails(amountYen) {
+    return {
+      amount: String(amountYen), // 例: "720"（JPYは小数なし）
+      currencyCode: "JPY",
+      intent: "CHARGE",
+      customerInitiated: true,
+      sellerKeyedIn: false,
+      // billingContact は入れるほど3DSの成功率が上がる（任意）
+      // billingContact: {
+      //   givenName: "Taro",
+      //   familyName: "Yamada",
+      //   email: "taro@example.com",
+      //   countryCode: "JP",
+      // }
+    };
+  }
+
+  const handleSubmitOrderFlow = async () => {
+    if (!(await canUseCookies()))
+      throw new Error("このブラウザではCookieが使えません。");
+
+    const items = buildOrderItems(state.cart);
+    if (items.length === 0) throw new Error("カートが空です");
+
+    const reservedDate = parseReservedToDate(selectedTime);
+    if (!reservedDate) throw new Error("予約時刻が不正です");
+
+    const reservedAtIso = reservedDate.toISOString();
+    const createdAtIso = new Date().toISOString();
+    const amount = calculateSumPrice();
+
+    const cfg = await Api.getSquareConfig();
+    const applicationId = cfg?.applicationId;
+    const locationId = cfg?.locationId;
+    if (!applicationId || !locationId)
+      throw new Error("Square設定が不足しています。");
+
+    try {
+      // ここまでで SDK はロード済み（paymentPhase === "input" 前提）
+      if (!cardRef.current) {
+        const cfg2 = await getSquareConfigSafe(); // ← Api.getSquareConfig() ではなく安全ヘルパ
+        await ensureCardMounted(cfg2.applicationId, cfg2.locationId);
+        if (!cardRef.current) throw new Error("カードUIの初期化に失敗しました");
+      }
+      console.log("DEBUG: Card UIアタッチ成功後のcardRef:", cardRef.current);
+
+      // ★ 3DS 用の verificationDetails を渡してトークン化
+      const verificationDetails = buildVerificationDetails(amount);
+      const result = await cardRef.current.tokenize(verificationDetails);
+
+      if (result.status !== "OK") {
+        const msg =
+          result.errors?.[0]?.message || "カードのトークン化に失敗しました";
+        throw new Error(msg);
+      }
+      const sourceId = result.token;
+
+      // 注文作成＆決済（モック or 実API）
+      let orderId, payment;
+      if (USE_MOCK_PAYMENT) {
+        // ---- モック（バック無しでフローを通す用）----
+        orderId = "MOCK-" + Math.floor(Math.random() * 100000);
+        await new Promise((r) => setTimeout(r, 300)); // 体感ウェイト
+        payment = { status: "APPROVED", receiptUrl: "" };
+        // ---------------------------------------------
+      } else {
+        const order = await Api.createOrder({
+          items,
+          reservedAtIso,
+          createdAtIso,
+          amount,
+        });
+        orderId = order?.orderId;
+        if (!orderId) throw new Error("orderIdの発行に失敗しました");
+
+        payment = await Api.chargeOrder({
+          orderId,
+          sourceId,
+          items,
+          reservedAtIso,
+          createdAtIso,
+          amount,
+        });
+      }
+
+      if (payment?.status === "APPROVED") {
+        setCookieJSON(
+          "cm_order_v1",
+          {
+            createdAt: createdAtIso,
+            reservedAtIso,
+            orderId,
+            itemsCart: state.cart,
+          },
+          { days: 7 }
+        );
+
+        setPaymentOutcome({
+          ok: true,
+          orderId,
+          error: null,
+          receiptUrl: payment?.receiptUrl || null,
+        });
+      } else {
+        setPaymentOutcome({
+          ok: false,
+          orderId,
+          error: payment?.error || "決済が承認されませんでした",
+          receiptUrl: null,
+        });
+      }
+    } catch (e) {
+      setPaymentOutcome({
+        ok: false,
+        orderId: null,
+        error: e?.message || "決済処理中にエラーが発生しました",
+        receiptUrl: null,
+      });
+    }
+    dispatch({ type: "GOTO", step: "paymentResult" });
   };
 
   // ＜TODO: cookieの確認＞
@@ -533,27 +835,144 @@ export const App = () => {
         <>
           <div className="reservation-page-wrapper">
             {/* testTimeにtestDateを代入するとデバッグモード、falseを代入すると本番モード */}
-            <TimeSelect onTimeChange={setSelectedTime} testTime={false} />
+            <TimeSelect onTimeChange={setSelectedTime} testTime={testDate} />
             {/* 他の入力フィールドやボタン */}
           </div>
         </>
       )}
       {state.step === "payment" && (
         <>
-          <p style={{ marginLeft: "10px" }}>外部決済サービスに接続中...</p>
           {/*＜TODO： 数秒待機して、サーバーよりID取得、squareAPI＞ */}
           {/*＜TODO： PaymentResultに遷移＞ */}
+          {paymentPhase === "connecting" && (
+            <p style={{ marginLeft: "10px" }}>外部決済サービスに接続中...</p>
+          )}
+          {paymentPhase === "input" && (
+            <div style={{ padding: "12px 10px" }}>
+              <p style={{ margin: "6px 10px" }}>カード情報の入力</p>
+              <div id="card-container" style={{ margin: "12px 10px" }} />
+              <button
+                style={{ marginLeft: 10, width: 160, height: 22, fontSize: 10 }}
+                disabled={!cardRef.current} // ★追加
+                onClick={async () => {
+                  try {
+                    await handleSubmitOrderFlow();
+                  } catch (e) {
+                    alert(e?.message || "決済でエラーが発生しました");
+                  }
+                }}
+              >
+                {cardRef.current ? "支払う" : "準備中..."}{" "}
+                {/* 任意でラベルも */}
+              </button>
+            </div>
+          )}
         </>
       )}
       {state.step === "paymentResult" && (
         <>
           {/*＜TODO： 決済成功したならcookie付与、サーバーAPI＞ */}
-          <p>注文完了／エラーハンドリング</p>
+          {paymentOutcome.ok ? (
+            <div style={{ padding: "12px" }}>
+              <p
+                style={{
+                  textAlign: "center",
+                  fontSize: 22,
+                  fontWeight: "bold",
+                  margin: "16px auto",
+                }}
+              >
+                決済が完了しました
+              </p>
+              <p style={{ textAlign: "center", fontSize: 18, margin: "6px" }}>
+                注文番号：<b>{paymentOutcome.orderId}</b>
+              </p>
+              {paymentOutcome.receiptUrl && (
+                <p style={{ textAlign: "center", margin: "6px" }}>
+                  <a
+                    href={paymentOutcome.receiptUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    レシートを開く
+                  </a>
+                </p>
+              )}
+              <div style={{ textAlign: "center", marginTop: 16 }}>
+                <button
+                  style={{ width: 160, height: 44, fontSize: 18 }}
+                  onClick={() => dispatch({ type: "GOTO", step: "numberTag" })}
+                >
+                  番号札を表示
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: "12px" }}>
+              <p
+                style={{
+                  textAlign: "center",
+                  fontSize: 22,
+                  fontWeight: "bold",
+                  margin: "16px auto",
+                  color: "red",
+                }}
+              >
+                決済に失敗しました
+              </p>
+              {paymentOutcome.orderId && (
+                <p style={{ textAlign: "center", fontSize: 16, margin: "6px" }}>
+                  （注文番号: {paymentOutcome.orderId}）
+                </p>
+              )}
+              <p style={{ textAlign: "center", fontSize: 16, margin: "6px" }}>
+                {paymentOutcome.error || "不明なエラー"}
+              </p>
+              <div style={{ textAlign: "center", marginTop: 16 }}>
+                <button
+                  style={{
+                    width: 160,
+                    height: 44,
+                    fontSize: 18,
+                    marginRight: 10,
+                  }}
+                  onClick={() => {
+                    // 結果をクリア → paymentへ。入場時のuseEffectが初期化〜attachを実施
+                    setPaymentOutcome({
+                      ok: false,
+                      orderId: null,
+                      error: null,
+                      receiptUrl: null,
+                    });
+                    dispatch({ type: "GOTO", step: "cart" });
+                  }}
+                >
+                  カートに戻る
+                </button>
+                <button
+                  style={{ width: 160, height: 44, fontSize: 18 }}
+                  onClick={() => {
+                    // 結果をクリア → paymentへ。入場時のuseEffectが初期化〜attachを実施
+                    setPaymentOutcome({
+                      ok: false,
+                      orderId: null,
+                      error: null,
+                      receiptUrl: null,
+                    });
+                    dispatch({ type: "GOTO", step: "payment" });
+                  }}
+                >
+                  再試行
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
       {state.step === "numberTag" && (
         <>
           {/*＜TODO： ここに遷移する前にcookieからカート情報を取得、ID情報を取得＞ */}
+
           <p
             style={{
               textAlign: "center",
@@ -587,6 +1006,7 @@ export const App = () => {
         </>
       )}
       {state.step !== "payment" &&
+        state.step !== "paymentResult" &&
         state.step !== "complete" &&
         state.step !== "title" &&
         state.step !== "numberTag" && (
@@ -609,5 +1029,5 @@ export const App = () => {
 };
 
 //ThisAppMadeBy
-//Mika.Misono, Seia.Yurizono, Nagisa.kirifuji,
+//Mika.Misono, Seia.Yurizono, Nagisa.Kirifuji,
 //Ichika.Nakamasa, Hasumi.Hanekawa
