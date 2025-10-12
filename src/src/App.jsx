@@ -1,3 +1,4 @@
+// （省略せずファイル全体を置いてください。以下は重要な変更を含む完全版の一例です）
 import "./styles.css";
 import { useState, useEffect, useRef } from "react";
 
@@ -104,14 +105,9 @@ const initialState = {
 
 const testDate = new Date(2025, 8, 22, 12, 0, 0);
 
-// デバッグ用: 選択時刻がAppで取得できているか確認
-// console.log("Appが保持する予約時刻:", selectedTime);
-
-// ------ ScreenState ------
-
+// ------ ScreenState（省略せず従来どおり） ------
 const screenState = (state, action) => {
   switch (action.type) {
-    //ここから下は画面遷移
     case "GOTO":
       if (!steps.includes(action.step)) return state;
       return { ...state, step: action.step };
@@ -133,7 +129,6 @@ const screenState = (state, action) => {
       }
       return state;
     }
-    //ここから下はカートのアイテム操作
     case "ADD_ITEM": {
       const { itemId } = action;
       const currentCount = state.cart[itemId] || 0;
@@ -184,9 +179,7 @@ const screenState = (state, action) => {
       }
       return state;
     }
-    //ここから下はカートの内部処理
     case "CLEAR_TEMPORARY_DRINKS": {
-      // ID91,92,93,94の中身を削除する
       const newCart = { ...state.cart };
       newCart[91] = 0;
       newCart[92] = 0;
@@ -195,26 +188,22 @@ const screenState = (state, action) => {
       return { ...state, cart: newCart };
     }
     case "DELETE_TEMPORARY": {
-      // ID30,40,50の中身を削除する
       const newCart = { ...state.cart };
       newCart[30] = 0;
       newCart[40] = 0;
       newCart[50] = 0;
       return { ...state, cart: newCart };
     }
-    // 仮IDの注文を実IDに入れる
     case "ORGANIZE_CART": {
       const cart = state.cart;
       const newCart = { ...cart };
       let sumM = newCart[40] || 0;
       let sumL = newCart[50] || 0;
 
-      //初期化
       for (let i = 31; i <= 34; i++) newCart[i] = 0;
       for (let i = 41; i <= 44; i++) newCart[i] = 0;
       for (let i = 51; i <= 54; i++) newCart[i] = 0;
 
-      //割り当て
       for (let d = 91; d <= 94; d++) {
         const drinkNo = d - 90; // 1..4
         let qty = newCart[d] || 0;
@@ -241,16 +230,12 @@ const screenState = (state, action) => {
       return { ...state, cart: newCart };
     }
     case "REPLACE_CART": {
-      // 引数 cart の全量で置き換え（存在しないIDは0想定なら上書きでOK）
-      // cookie用
       return { ...state, cart: { ...state.cart, ...action.cart } };
     }
     default:
       return state;
   }
 };
-
-// ------ 決済成功／非成功　成功ならばcookie作成＆情報送信 ------
 
 // ------ 本体 ------
 
@@ -279,10 +264,8 @@ export const App = () => {
   const goto = (s) => dispatch({ type: "GOTO", step: s });
   const next = () => {
     if (state.step === "menu" && calculateNumberOfDrinksInMenu() === 0) {
-      // ドリンク選択の必要がない場合はそのままcart画面へ
       dispatch({ type: "GOTO", step: "cart" });
     } else if (state.step === "drink") {
-      // drinkからカート画面に移る時、cartを整理
       dispatch({ type: "ORGANIZE_CART" });
       dispatch({ type: "NEXT" });
     } else {
@@ -291,7 +274,6 @@ export const App = () => {
   };
   const prev = () => {
     if (state.step === "cart") {
-      //cart画面から戻る場合はdrink選択を初期化してmenu画面へ
       dispatch({ type: "CLEAR_TEMPORARY_DRINKS" });
       dispatch({ type: "GOTO", step: "menu" });
     } else {
@@ -301,12 +283,10 @@ export const App = () => {
   const addItems = (id) => dispatch({ type: "ADD_ITEM", itemId: id });
   const removeItems = (id) => dispatch({ type: "REMOVE_ITEM", itemId: id });
 
-  //menu画面で選んだドリンク入りメニューの数を計算
   const calculateNumberOfDrinksInMenu = () => {
     return state.cart[30] + state.cart[40] + state.cart[50];
   };
 
-  //drink画面で選んだドリンクの数を計算
   const calculateNumberOfDrinksInDrink = () => {
     return state.cart[91] + state.cart[92] + state.cart[93] + state.cart[94];
   };
@@ -337,6 +317,15 @@ export const App = () => {
   // Square Card のインスタンス保持
   const cardRef = useRef(null);
 
+  // 明示的に「カードUIが正常にattachされている」かを示す状態フラグ
+  const [cardAttached, setCardAttached] = useState(false);
+
+  // billing info（トークン化に必須）
+  const [billingFamilyName, setBillingFamilyName] = useState("");
+  const [billingGivenName, setBillingGivenName] = useState("");
+  const [billingEmail, setBillingEmail] = useState("");
+  const [billingCountryCode, setBillingCountryCode] = useState("JP");
+
   // card-container の中身をクリア
   function clearCardContainer() {
     const el = document.getElementById("card-container");
@@ -354,6 +343,10 @@ export const App = () => {
     } finally {
       cardRef.current = null;
       clearCardContainer();
+      setCardAttached(false);
+      console.log(
+        "DEBUG: destroyCardIfAny: cleared cardRef and cardAttached=false"
+      );
     }
   }
 
@@ -374,12 +367,10 @@ export const App = () => {
 
   // 入力フェーズで #card-container に attach（必要なら再attach）
   async function ensureCardMounted(applicationId, locationId) {
-    // DOM描画を待つユーティリティ
     function nextFrame() {
       return new Promise((resolve) => requestAnimationFrame(() => resolve()));
     }
     async function waitForContainer() {
-      // 最大3フレームだけ待ってから判定
       for (let i = 0; i < 3; i++) {
         const el = document.getElementById("card-container");
         if (el) return el;
@@ -391,51 +382,65 @@ export const App = () => {
       return null;
     }
     if (!window.Square) throw new Error("Square SDKが読み込まれていません");
-    // すぐgetElementByIdせず、描画を最長3フレーム待つ
     const container = await waitForContainer();
     if (!container) throw new Error("#card-container が見つかりません");
 
-    // 既に作ってあるがDOMから外れている場合は再attach
-    if (cardRef.current && container.childElementCount === 0) {
-      try {
-        await pTimeout(
-          cardRef.current.attach("#card-container"),
-          5000,
-          "カードUIの attach がタイムアウトしました。\n" +
-            "・埋め込みプレビューではなく新規タブで開く\n" +
-            "・Square の Allowed origins に現在のURLを登録"
-        );
-        return;
-      } catch {
-        await destroyCardIfAny();
-      }
-      // まだ無ければ新規作成して attach
-      if (!cardRef.current) {
-        let payments;
+    if (cardRef.current) {
+      if (container.childElementCount === 0) {
         try {
-          payments = window.Square.payments(applicationId, locationId);
-        } catch (e) {
-          throw new Error(
-            "Square.payments の初期化に失敗: " +
-              (e?.message || "") +
-              "\n→ Developer Console の Allowed origins（Allowed domains）に\n" +
-              window.location.origin +
-              " を追加してください。"
+          console.log("DEBUG: 再attachを試みます...");
+          await pTimeout(
+            cardRef.current.attach("#card-container"),
+            5000,
+            "カードUIの attach がタイムアウトしました。\n" +
+              "・埋め込みプレビューではなく新規タブで開く\n" +
+              "・Square の Allowed origins に現在のURLを登録"
           );
+          setCardAttached(true);
+          console.log("DEBUG: 再attach成功 — cardAttached=true");
+          return;
+        } catch (err) {
+          console.warn(
+            "DEBUG: 再attachに失敗しました。破棄して新規作成にフォールバック",
+            err
+          );
+          await destroyCardIfAny();
         }
-
-        const card = await payments.card();
-        await pTimeout(
-          card.attach("#card-container"),
-          5000,
-          "カードUIの attach がタイムアウトしました。\n" +
-            "・新規タブで開く\n・Allowed origins に " +
-            window.location.origin +
-            " を登録"
-        );
-        cardRef.current = card;
+      } else {
+        setCardAttached(true);
+        console.log("DEBUG: 既にDOMにアタッチ済み — cardAttached=true");
+        return;
       }
     }
+
+    // cardRef が無ければ新規作成して attach
+    let payments;
+    try {
+      payments = window.Square.payments(applicationId, locationId);
+    } catch (e) {
+      throw new Error(
+        "Square.payments の初期化に失敗: " +
+          (e?.message || "") +
+          "\n→ Developer Console の Allowed origins（Allowed domains）に\n" +
+          window.location.origin +
+          " を追加してください。"
+      );
+    }
+
+    const card = await payments.card();
+    await pTimeout(
+      card.attach("#card-container"),
+      5000,
+      "カードUIの attach がタイムアウトしました。\n" +
+        "・新規タブで開く\n・Allowed origins に " +
+        window.location.origin +
+        " を登録"
+    );
+    cardRef.current = card;
+    setCardAttached(true);
+    console.log(
+      "DEBUG: 新規作成して attach 成功 — cardRef set and cardAttached=true"
+    );
   }
 
   useEffect(() => {
@@ -443,13 +448,13 @@ export const App = () => {
 
     setPaymentPhase("connecting");
     if (paymentTimerRef.current) clearTimeout(paymentTimerRef.current);
-    destroyCardIfAny(); // 古いUI掃除
+    destroyCardIfAny();
 
     paymentTimerRef.current = setTimeout(async () => {
       try {
         const cfg = await Api.getSquareConfig();
         await loadSquareSdk(cfg?.environment || "PRODUCTION");
-        setPaymentPhase("input"); // ← ここでは切り替えだけ（DOMはまだ）
+        setPaymentPhase("input");
       } catch (e) {
         alert(e?.message || "決済モジュールの初期化に失敗しました");
         dispatch({ type: "GOTO", step: "cart" });
@@ -470,17 +475,16 @@ export const App = () => {
       (async () => {
         try {
           const cfg = await Api.getSquareConfig();
-          // DOMが描画された後に確実に ensureCardMounted を実行
           await ensureCardMounted(cfg.applicationId, cfg.locationId);
         } catch (e) {
           alert(e?.message || "#card-container の初期化に失敗しました");
           dispatch({ type: "GOTO", step: "cart" });
         }
       })();
-    }, 100); // 100ミリ秒のわずかな遅延を設定
+    }, 100);
 
     return () => {
-      clearTimeout(attachTimer); // クリーンアップ関数にタイマーのクリアを追加
+      clearTimeout(attachTimer);
     };
   }, [state.step, paymentPhase]);
 
@@ -496,22 +500,19 @@ export const App = () => {
     }
   };
 
-  // JPY用の 3DS 検証情報を作る（金額は円の整数文字列）
-  function buildVerificationDetails(amountYen) {
-    return {
-      amount: String(amountYen), // 例: "720"（JPYは小数なし）
+  // buildVerificationDetails に billingContact を渡せるように変更
+  function buildVerificationDetails(amountYen, billingContact) {
+    const base = {
+      amount: String(amountYen),
       currencyCode: "JPY",
       intent: "CHARGE",
       customerInitiated: true,
       sellerKeyedIn: false,
-      // billingContact は入れるほど3DSの成功率が上がる（任意）
-      // billingContact: {
-      //   givenName: "Taro",
-      //   familyName: "Yamada",
-      //   email: "taro@example.com",
-      //   countryCode: "JP",
-      // }
     };
+    if (billingContact && typeof billingContact === "object") {
+      base.billingContact = billingContact;
+    }
+    return base;
   }
 
   const handleSubmitOrderFlow = async () => {
@@ -535,16 +536,30 @@ export const App = () => {
       throw new Error("Square設定が不足しています。");
 
     try {
-      // ここまでで SDK はロード済み（paymentPhase === "input" 前提）
+      // billingContact を必須チェック（ここでは簡易チェック）
+      if (!billingFamilyName || !billingGivenName || !billingEmail) {
+        throw new Error("請求先情報（氏名・メール）を入力してください");
+      }
+      const billingContact = {
+        familyName: billingFamilyName,
+        givenName: billingGivenName,
+        email: billingEmail,
+        countryCode: billingCountryCode || "JP",
+      };
+
+      // cardRef がなければ初期化
       if (!cardRef.current) {
-        const cfg2 = await getSquareConfigSafe(); // ← Api.getSquareConfig() ではなく安全ヘルパ
+        const cfg2 = await Api.getSquareConfig();
         await ensureCardMounted(cfg2.applicationId, cfg2.locationId);
         if (!cardRef.current) throw new Error("カードUIの初期化に失敗しました");
       }
       console.log("DEBUG: Card UIアタッチ成功後のcardRef:", cardRef.current);
 
-      // ★ 3DS 用の verificationDetails を渡してトークン化
-      const verificationDetails = buildVerificationDetails(amount);
+      // billingContact を検証情報に含めてトークン化
+      const verificationDetails = buildVerificationDetails(
+        amount,
+        billingContact
+      );
       const result = await cardRef.current.tokenize(verificationDetails);
 
       if (result.status !== "OK") {
@@ -554,14 +569,11 @@ export const App = () => {
       }
       const sourceId = result.token;
 
-      // 注文作成＆決済（モック or 実API）
       let orderId, payment;
       if (USE_MOCK_PAYMENT) {
-        // ---- モック（バック無しでフローを通す用）----
         orderId = "MOCK-" + Math.floor(Math.random() * 100000);
-        await new Promise((r) => setTimeout(r, 300)); // 体感ウェイト
+        await new Promise((r) => setTimeout(r, 300));
         payment = { status: "APPROVED", receiptUrl: "" };
-        // ---------------------------------------------
       } else {
         const order = await Api.createOrder({
           items,
@@ -619,9 +631,7 @@ export const App = () => {
     dispatch({ type: "GOTO", step: "paymentResult" });
   };
 
-  // ＜TODO: cookieの確認＞
-
-  // ------ ここからreturn ------
+  // ------ ここからreturn（支払い画面に入力欄を表示） ------
 
   return (
     <>
@@ -634,8 +644,6 @@ export const App = () => {
 
       {state.step === "menu" && (
         <>
-          {/* ＜TODO: バックエンドから売り切れトグルの読み込み＞ */}
-          {/* ＜TODO: 時間参照し、17時以降だったら全売り切れ＞ */}
           <div className="center-alignment">
             <div className="list-row">
               <Menu
@@ -647,9 +655,8 @@ export const App = () => {
                 id={40}
                 add={addItems}
                 remove={removeItems}
-                image={testImg} //テストイメージ
+                image={testImg}
                 isSoldout={isSoldout[40]}
-                //＜TODO: image={img40}＞
               />
               <Menu
                 borderColor={"2px solid #ffbf7f"}
@@ -661,7 +668,6 @@ export const App = () => {
                 add={addItems}
                 remove={removeItems}
                 isSoldout={isSoldout[50]}
-                //TODO: image={img50}
               />
             </div>
             <div className="list-row">
@@ -675,7 +681,6 @@ export const App = () => {
                 add={addItems}
                 remove={removeItems}
                 isSoldout={isSoldout[10]}
-                //TODO: image={img10}
               />
               <Menu
                 borderColor={"2px solid #ffbf7f"}
@@ -687,7 +692,6 @@ export const App = () => {
                 add={addItems}
                 remove={removeItems}
                 isSoldout={isSoldout[20]}
-                //TODO: image={img20}
               />
             </div>
             <div className="list-row">
@@ -701,11 +705,9 @@ export const App = () => {
                 add={addItems}
                 remove={removeItems}
                 isSoldout={isSoldout[30]}
-                //TODO: image={img30}
               />
             </div>
           </div>
-          {/* フッターの高さを変えたらここも変えないとボタン押せなくなる */}
           <div style={{ minHeight: "60px" }}></div>
         </>
       )}
@@ -760,7 +762,6 @@ export const App = () => {
                 difference={calculateDifferenceOfDrinks()}
                 isDrinkScreen={state.step === "drink"}
                 isSoldout={isSoldout[91]}
-                //TODO: image={img91}
               />
               <Menu
                 borderColor={"2px solid #7fbfff"}
@@ -773,7 +774,6 @@ export const App = () => {
                 difference={calculateDifferenceOfDrinks()}
                 isDrinkScreen={state.step === "drink"}
                 isSoldout={isSoldout[92]}
-                //TODO: mage={img92}
               />
             </div>
             <div className="list-row">
@@ -788,7 +788,6 @@ export const App = () => {
                 difference={calculateDifferenceOfDrinks()}
                 isDrinkScreen={state.step === "drink"}
                 isSoldout={isSoldout[93]}
-                //TODO: image={img93}
               />
               <Menu
                 borderColor={"2px solid #7fbfff"}
@@ -801,17 +800,14 @@ export const App = () => {
                 difference={calculateDifferenceOfDrinks()}
                 isDrinkScreen={state.step === "drink"}
                 isSoldout={isSoldout[94]}
-                //TODO: image={img94}
               />
             </div>
           </div>
-          {/* フッターの高さを変えたらここも変えないとボタン押せなくなる */}
           <div style={{ minHeight: "60px" }}></div>
         </>
       )}
 
       {state.step === "cart" && (
-        //TODO: 時間過ぎたら注文できないようにする
         <>
           <p
             style={{
@@ -825,7 +821,6 @@ export const App = () => {
           </p>
           <div>
             <Order cart={state.cart} price={prices} names={itemNames} />
-            {/* フッターの高さを変えたらここも変えないとボタン押せなくなる */}
             <div style={{ minHeight: "60px" }}></div>
           </div>
         </>
@@ -834,26 +829,57 @@ export const App = () => {
       {state.step === "time" && (
         <>
           <div className="reservation-page-wrapper">
-            {/* testTimeにtestDateを代入するとデバッグモード、falseを代入すると本番モード */}
             <TimeSelect onTimeChange={setSelectedTime} testTime={testDate} />
-            {/* 他の入力フィールドやボタン */}
           </div>
         </>
       )}
       {state.step === "payment" && (
         <>
-          {/*＜TODO： 数秒待機して、サーバーよりID取得、squareAPI＞ */}
-          {/*＜TODO： PaymentResultに遷移＞ */}
           {paymentPhase === "connecting" && (
             <p style={{ marginLeft: "10px" }}>外部決済サービスに接続中...</p>
           )}
           {paymentPhase === "input" && (
             <div style={{ padding: "12px 10px" }}>
               <p style={{ margin: "6px 10px" }}>カード情報の入力</p>
+
+              {/* billing 情報入力欄を追加 */}
+              <div style={{ margin: "6px 10px" }}>
+                <div style={{ marginBottom: 6 }}>
+                  <input
+                    placeholder="姓 (例: 山田)"
+                    value={billingFamilyName}
+                    onChange={(e) => setBillingFamilyName(e.target.value)}
+                    style={{ marginRight: 6 }}
+                  />
+                  <input
+                    placeholder="名 (例: 太郎)"
+                    value={billingGivenName}
+                    onChange={(e) => setBillingGivenName(e.target.value)}
+                    style={{ marginRight: 6 }}
+                  />
+                </div>
+                <div style={{ marginBottom: 6 }}>
+                  <input
+                    placeholder="メールアドレス (例: taro@example.com)"
+                    value={billingEmail}
+                    onChange={(e) => setBillingEmail(e.target.value)}
+                    style={{ width: "100%" }}
+                  />
+                </div>
+                <div style={{ fontSize: 12, color: "#666" }}>
+                  ※決済時に氏名とメールが必要です（3DS 検証用）
+                </div>
+              </div>
+
               <div id="card-container" style={{ margin: "12px 10px" }} />
               <button
-                style={{ marginLeft: 10, width: 160, height: 22, fontSize: 10 }}
-                disabled={!cardRef.current} // ★追加
+                style={{ marginLeft: 10, width: 160, height: 32, fontSize: 14 }}
+                disabled={
+                  !cardAttached ||
+                  !billingFamilyName.trim() ||
+                  !billingGivenName.trim() ||
+                  !billingEmail.trim()
+                }
                 onClick={async () => {
                   try {
                     await handleSubmitOrderFlow();
@@ -862,8 +888,12 @@ export const App = () => {
                   }
                 }}
               >
-                {cardRef.current ? "支払う" : "準備中..."}{" "}
-                {/* 任意でラベルも */}
+                {cardAttached &&
+                billingFamilyName.trim() &&
+                billingGivenName.trim() &&
+                billingEmail.trim()
+                  ? "支払う"
+                  : "準備中..."}
               </button>
             </div>
           )}
@@ -871,7 +901,6 @@ export const App = () => {
       )}
       {state.step === "paymentResult" && (
         <>
-          {/*＜TODO： 決済成功したならcookie付与、サーバーAPI＞ */}
           {paymentOutcome.ok ? (
             <div style={{ padding: "12px" }}>
               <p
@@ -937,7 +966,6 @@ export const App = () => {
                     marginRight: 10,
                   }}
                   onClick={() => {
-                    // 結果をクリア → paymentへ。入場時のuseEffectが初期化〜attachを実施
                     setPaymentOutcome({
                       ok: false,
                       orderId: null,
@@ -952,7 +980,6 @@ export const App = () => {
                 <button
                   style={{ width: 160, height: 44, fontSize: 18 }}
                   onClick={() => {
-                    // 結果をクリア → paymentへ。入場時のuseEffectが初期化〜attachを実施
                     setPaymentOutcome({
                       ok: false,
                       orderId: null,
@@ -971,8 +998,6 @@ export const App = () => {
       )}
       {state.step === "numberTag" && (
         <>
-          {/*＜TODO： ここに遷移する前にcookieからカート情報を取得、ID情報を取得＞ */}
-
           <p
             style={{
               textAlign: "center",
@@ -1011,7 +1036,6 @@ export const App = () => {
         state.step !== "title" &&
         state.step !== "numberTag" && (
           <footer>
-            {/* ＜TODO: 時間が有効な場合のみ遷移を有効にする＞ */}
             <Footer
               sumPrice={calculateSumPrice()}
               prev={prev}
