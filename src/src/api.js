@@ -1,19 +1,19 @@
 // フロント -> バックエンドの API 呼び出しラッパー
 
 // WARNING:本番環境ではこちらにする
-// WARNING:最低限のフォールバック（本番ではサーバ側で渡し、これは消す。）
-// const FALLBACK_SQUARE = {
-//   applicationId: "sq0idp-VLfeIy3EnmoACHjocINrRA",
-//   locationId: "LYP1FB67EDXBN",
-//   environment: "PRODUCTION",
-// };
-
-//WARNING:テスト環境ではこちらにする
+//WARNING:最低限のフォールバック（本番ではサーバ側で渡し、これは消す。）
 const FALLBACK_SQUARE = {
-  applicationId: "sandbox-sq0idb-TSpPtbWlulBoJyV0q3lPgQ",
+  applicationId: "sq0idp-VLfeIy3EnmoACHjocINrRA",
   locationId: "LYP1FB67EDXBN",
-  environment: "SANDBOX",
+  environment: "PRODUCTION",
 };
+
+// //WARNING:テスト環境ではこちらにする
+// const FALLBACK_SQUARE = {
+//   applicationId: "sandbox-sq0idb-TSpPtbWlulBoJyV0q3lPgQ",
+//   locationId: "LYP1FB67EDXBN",
+//   environment: "SANDBOX",
+// };
 
 export const Api = {
   // Square 設定の取得:
