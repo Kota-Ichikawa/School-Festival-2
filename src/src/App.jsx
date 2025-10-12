@@ -368,6 +368,12 @@ export const App = () => {
     paymentTimerRef.current = setTimeout(async () => {
       try {
         const cfg = await Api.getSquareConfig();
+        console.log("DEBUG: getSquareConfig raw:", cfg);
+        const applicationId = (cfg?.applicationId ?? "").toString().trim();
+        const locationId = (cfg?.locationId ?? "").toString().trim();
+        console.log("DEBUG: applicationId (trimmed):", applicationId);
+        console.log("DEBUG: locationId (trimmed):", locationId);
+
         await loadSquareSdk(cfg?.environment || "PRODUCTION");
         setPaymentPhase("input");
       } catch (e) {
@@ -434,6 +440,10 @@ export const App = () => {
       throw new Error("このブラウザではCookieが使えません。");
 
     const items = buildOrderItems(state.cart);
+    console.log("DEBUG: buildOrderItems result:", items);
+    console.log("DEBUG: state.cart:", state.cart);
+    console.log("DEBUG: calculated amount:", amount);
+    console.table(items);
     if (items.length === 0) throw new Error("カートが空です");
 
     const reservedDate = parseReservedToDate(selectedTime);
