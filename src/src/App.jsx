@@ -440,6 +440,7 @@ export const App = () => {
       throw new Error("このブラウザではCookieが使えません。");
 
     const items = buildOrderItems(state.cart);
+    const amount = calculateSumPrice();
     console.log("DEBUG: buildOrderItems result:", items);
     console.log("DEBUG: state.cart:", state.cart);
     console.log("DEBUG: calculated amount:", amount);
@@ -451,7 +452,6 @@ export const App = () => {
 
     const reservedAtIso = reservedDate.toISOString();
     const createdAtIso = new Date().toISOString();
-    const amount = calculateSumPrice();
 
     const cfg = await Api.getSquareConfig();
     const applicationId = cfg?.applicationId;
