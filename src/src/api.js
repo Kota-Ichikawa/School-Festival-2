@@ -1,56 +1,100 @@
 // フロント -> バックエンドの API 呼び出しラッパー
 
-// WARNING:本番環境ではこちらにする
-//WARNING:最低限のフォールバック（本番ではサーバ側で渡し、これは消す。）
+// WARNING: これはテスト環境用
+// WARNING: フロントだけで動くようにFALLBACK
 const FALLBACK_SQUARE = {
-  applicationId: "sq0idp-VLfeIy3EnmoACHjocINrRA",
-  locationId: "LYP1FB67EDXBN",
-  environment: "PRODUCTION",
+  applicationId: "sandbox-sq0idb-TSpPtbWlulBoJyV0q3lPgQ",
+  locationId: "LKJK1TXBNV3GX",
+  environment: "SANDBOX",
 };
 
-// //WARNING:テスト環境ではこちらにする
-// const FALLBACK_SQUARE = {
-//   applicationId: "sandbox-sq0idb-TSpPtbWlulBoJyV0q3lPgQ",
-//   locationId: "LYP1FB67EDXBN",
-//   environment: "SANDBOX",
-// };
+function isValidAppId(id) {
+  if (!id || typeof id !== "string") return false;
+  const s = id.trim();
+  return /^((sq0idp-|sq0idb-|sandbox-).+)/i.test(s);
+}
 
 export const Api = {
-  // Square 設定の取得:
-  // 優先順:
-  // 1) /api/square/config があればそこを使う（推奨：サーバが applicationId, locationId, environment を返す）
-  // 2) なければ /api/payment/get/ApplicationId から applicationId を取得し、残りはフォールバック
   async getSquareConfig() {
+    // 1) try /api/square/config expecting JSON
     try {
-      // try server-provided full config first
-      const res = await fetch("/api/square/config");
+      const res = await fetch("/api/square/config", {
+        headers: { Accept: "application/json" },
+      });
       if (res.ok) {
-        const cfg = await res.json();
-        return {
-          applicationId: cfg?.applicationId || FALLBACK_SQUARE.applicationId,
-          locationId: cfg?.locationId || FALLBACK_SQUARE.locationId,
-          environment: cfg?.environment || FALLBACK_SQUARE.environment,
-        };
+        const ctype = (res.headers.get("content-type") || "").toLowerCase();
+        if (ctype.includes("application/json")) {
+          try {
+            const cfg = await res.json();
+            const appId = (cfg?.applicationId ?? "").toString().trim();
+            const loc = (cfg?.locationId ?? "").toString().trim();
+            const env = (cfg?.environment ?? "").toString().trim();
+            if (isValidAppId(appId)) {
+              return {
+                applicationId: appId,
+                locationId: loc || FALLBACK_SQUARE.locationId,
+                environment: env || FALLBACK_SQUARE.environment,
+              };
+            } else {
+              console.warn(
+                "getSquareConfig: invalid applicationId in /api/square/config JSON:",
+                appId
+              );
+            }
+          } catch (e) {
+            console.warn(
+              "getSquareConfig: failed to parse JSON from /api/square/config:",
+              e
+            );
+          }
+        } else {
+          console.warn(
+            "getSquareConfig: /api/square/config returned non-JSON content-type:",
+            ctype
+          );
+        }
+      } else {
+        console.warn(
+          "getSquareConfig: /api/square/config returned not ok:",
+          res.status
+        );
       }
-    } catch {
-      // ignore and fallback to next
+    } catch (e) {
+      console.warn("getSquareConfig: fetch error /api/square/config:", e);
     }
 
+    // 2) fallback to text endpoint if available
     try {
       const res2 = await fetch("/api/payment/get/ApplicationId");
       if (res2.ok) {
-        const appId = await res2.text();
-        return {
-          applicationId: appId || FALLBACK_SQUARE.applicationId,
-          locationId: FALLBACK_SQUARE.locationId,
-          environment: FALLBACK_SQUARE.environment,
-        };
+        const text = (await res2.text()).trim();
+        if (isValidAppId(text)) {
+          return {
+            applicationId: text,
+            locationId: FALLBACK_SQUARE.locationId,
+            environment: FALLBACK_SQUARE.environment,
+          };
+        } else {
+          console.warn(
+            "getSquareConfig: /api/payment/get/ApplicationId returned invalid id:",
+            text
+          );
+        }
+      } else {
+        console.warn(
+          "getSquareConfig: /api/payment/get/ApplicationId returned not ok:",
+          res2.status
+        );
       }
-    } catch {
-      // ignore
+    } catch (e) {
+      console.warn(
+        "getSquareConfig: fetch error /api/payment/get/ApplicationId:",
+        e
+      );
     }
 
-    // 最終フォールバック
+    // 3) final fallback
+    console.warn("getSquareConfig: using FALLBACK_SQUARE (development only)");
     return { ...FALLBACK_SQUARE };
   },
 
