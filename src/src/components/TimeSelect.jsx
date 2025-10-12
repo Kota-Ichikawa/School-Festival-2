@@ -1,11 +1,15 @@
 import React, { useState, useMemo, useEffect } from "react";
 
+// テスト時のみ true にしてください。本番環境では必ず false に戻してください。
+const IS_DEBUG_MODE = false;
+const DEBUG_TIME = new Date(2025, 8, 22, 12, 0, 0);
+
 // 定数
 const START_OFFSET_MINUTES = 10;
 const LAST_ORDER_HOUR = 17;
 const INTERVAL_MINUTES = 5;
 
-// 予約可能な時刻オプションの配列を生成
+//予約可能な時刻オプションの配列を生成する関数
 const generateTimeOptions = (now) => {
   const startTargetTime = new Date(
     now.getTime() + START_OFFSET_MINUTES * 60000
@@ -13,10 +17,11 @@ const generateTimeOptions = (now) => {
 
   const minutes = startTargetTime.getMinutes();
   const minutesToRound = minutes % INTERVAL_MINUTES;
-  const roundedMinutes =
-    minutesToRound === 0
-      ? minutes
-      : minutes + (INTERVAL_MINUTES - minutesToRound);
+
+  let roundedMinutes = minutes;
+  if (minutesToRound !== 0) {
+    roundedMinutes = minutes + (INTERVAL_MINUTES - minutesToRound);
+  }
 
   const startTime = new Date(startTargetTime);
   startTime.setMinutes(roundedMinutes);
@@ -33,12 +38,13 @@ const generateTimeOptions = (now) => {
     if (
       currentHour > LAST_ORDER_HOUR ||
       (currentHour === LAST_ORDER_HOUR && currentMinutes > 0)
-    )
+    ) {
       break;
+    }
 
-    const hh = String(currentHour).padStart(2, "0");
-    const mm = String(currentMinutes).padStart(2, "0");
-    const timeString = `${hh}:${mm}`;
+    const timeString = `${String(currentHour).padStart(2, "0")}:${String(
+      currentMinutes
+    ).padStart(2, "0")}`;
     options.push({ value: timeString, label: timeString });
 
     currentTime = new Date(currentTime.getTime() + INTERVAL_MINUTES * 60000);
@@ -49,35 +55,28 @@ const generateTimeOptions = (now) => {
 
 // 本体
 export const TimeSelect = ({ onTimeChange, testTime }) => {
-  // now は testTime があればそれ、なければ現在時刻
-  const now = useMemo(
-    () => (testTime ? new Date(testTime) : new Date()),
-    [testTime]
-  );
+  // useMemoで計算結果をキャッシュし、不要な再計算を防ぐ
+  const now = testTime || new Date();
   const timeOptions = useMemo(() => generateTimeOptions(now), [now]);
 
-  // 画面表示用：現在時刻
+  //現在時刻をフォーマット
   const currentHour = String(now.getHours()).padStart(2, "0");
   const currentMinutes = String(now.getMinutes()).padStart(2, "0");
   const formattedTime = `${currentHour}:${currentMinutes}`;
 
-  // 選択値（制御コンポーネント）
-  const [selected, setSelected] = useState(timeOptions[0]?.value ?? "");
-
-  // オプションが変わったら先頭に合わせる（render中に親へは通知しない）
+  // ← 修正: render中に onTimeChange を直接呼ばない
+  // マウント時 / timeOptions が変わったときに一度だけ呼ぶ
   useEffect(() => {
-    setSelected(timeOptions[0]?.value ?? "");
-  }, [timeOptions]);
-
-  // 親への通知は selected が変わったときだけ
-  useEffect(() => {
-    if (!onTimeChange) return;
-    if (!selected) {
-      onTimeChange(null);
-    } else {
-      onTimeChange(selected); // ← App 側は "HH:MM" を想定しているのでそのまま渡す
+    if (timeOptions.length > 0 && typeof onTimeChange === "function") {
+      try {
+        onTimeChange(timeOptions[0].value);
+      } catch (e) {
+        // 親が同期的にエラーを投げても無視してループを防ぐ
+        console.warn("TimeSelect: onTimeChange threw:", e);
+      }
     }
-  }, [selected, onTimeChange]);
+    // onTimeChange は通常は安定（setState）だが、念のため依存に入れておく
+  }, [timeOptions, onTimeChange]);
 
   if (timeOptions.length === 0) {
     return (
@@ -96,8 +95,13 @@ export const TimeSelect = ({ onTimeChange, testTime }) => {
       </label>
       <select
         id="reservation-time"
-        value={selected}
-        onChange={(e) => setSelected(e.target.value)}
+        defaultValue={timeOptions[0].value}
+        onChange={(e) => {
+          // 変更があったら、Propsとして渡された親の関数を呼び出す
+          if (onTimeChange) {
+            onTimeChange(e.target.value);
+          }
+        }}
         style={selectStyle}
       >
         {timeOptions.map((option) => (

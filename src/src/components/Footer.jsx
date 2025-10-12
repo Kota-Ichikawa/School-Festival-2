@@ -1,11 +1,27 @@
+const LAST_ORDER_HOUR = 17;
+const LAST_ORDER_MIN = 0;
+
 export const Footer = ({
   sumPrice,
   next,
   prev,
   currentStep,
+  testTime,
   numOfChosenMenu,
   difference,
 }) => {
+  const now = testTime || new Date();
+  const isAfterLastOrder =
+    now.getHours() > LAST_ORDER_HOUR ||
+    (now.getHours() === LAST_ORDER_HOUR && now.getMinutes() >= LAST_ORDER_MIN);
+  console.log("Footer now/testTime:", { now, testTime, isAfterLastOrder });
+  console.log("Footer now/testTime:", {
+    now: now.toString(),
+    nowHours: now.getHours(),
+    nowMinutes: now.getMinutes(),
+    testTime: testTime ? testTime.toString() : testTime,
+  });
+
   const isNextDisabled = () => {
     if (currentStep === "menu" && numOfChosenMenu === 0) {
       return true;
@@ -59,8 +75,13 @@ export const Footer = ({
               backgroundColor: "#ff962d",
               border: "2px solid #000",
               fontWeight: "bold",
+              ...(isAfterLastOrder ? disabledBtnStyle : {}),
             }}
-            onClick={() => {
+            disabled={isAfterLastOrder}
+            aria-disabled={isAfterLastOrder}
+            onClick={(e) => {
+              if (isAfterLastOrder) return;
+              e.stopPropagation();
               next();
             }}
           >
@@ -72,7 +93,7 @@ export const Footer = ({
   );
 };
 
-footerStyle = {
+const footerStyle = {
   backgroundColor: "#a8d3ff",
   width: "100%",
   minHeight: "60px",
