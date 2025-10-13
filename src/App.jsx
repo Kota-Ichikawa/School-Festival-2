@@ -36,8 +36,8 @@ import img_50 from "../src/image/img_50.jpg";
 window.Api = Api;
 
 // バック連携前用のMOCKスイッチ
-//＜WARENING:本番は必ずfalseにすること＞
-const USE_MOCK_PAYMENT = true;
+//＜WARNING:本番は必ずfalseにすること＞
+const USE_MOCK_PAYMENT = false;
 
 // ------ 変数や定数 ------
 
@@ -118,6 +118,24 @@ const initialState = {
 
 //テスト時にSOLDOUT判定にしないための日付
 const testDate = new Date(2025, 8, 22, 12, 0, 0);
+
+// helper: format Date -> "yyyy-MM-dd'T'HH:mm:ss" (LocalDateTime style, no Z)
+function toLocalDateTimeString(d) {
+  const D = new Date(d);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${D.getFullYear()}-${p(D.getMonth() + 1)}-${p(D.getDate())}T${p(
+    D.getHours()
+  )}:${p(D.getMinutes())}:${p(D.getSeconds())}`;
+}
+
+// helper: display-friendly reserved datetime "YYYY-MM-DD HH:mm"
+function formatDisplayReserved(d) {
+  const D = new Date(d);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${D.getFullYear()}-${p(D.getMonth() + 1)}-${p(D.getDate())} ${p(
+    D.getHours()
+  )}:${p(D.getMinutes())}`;
+}
 
 // ------ ScreenStateの動作定義 ------
 const screenState = (state, action) => {
@@ -318,13 +336,19 @@ export const App = () => {
   const [paymentPhase, setPaymentPhase] = useState("connecting");
   const paymentTimerRef = useRef(null);
 
-  //決済結果を格納
+  //決済結果を格納（displayReserved を追加）
   const [paymentOutcome, setPaymentOutcome] = useState({
     ok: false,
     orderId: null,
     error: null,
     receiptUrl: null,
+    displayReserved: null,
   });
+
+  // Square flow: orderId is created at entry to payment step
+  const [currentOrderId, setCurrentOrderId] = useState(null);
+  const [currentOrderCreatedAtIso, setCurrentOrderCreatedAtIso] =
+    useState(null);
 
   //Square のカード入力 UI が DOM にアタッチされているかどうか
   const [cardAttached, setCardAttached] = useState(false);
@@ -468,7 +492,8 @@ export const App = () => {
       console.log("DEBUG: cm_order_v1 cookie loaded:", saved);
       if (!saved) return;
 
-      const { createdAt, reservedAtIso, orderId, itemsCart } = saved;
+      const { createdAt, reservedAtIso, orderId, itemsCart, displayReserved } =
+        saved;
       if (!reservedAtIso) {
         // 不正なデータなら削除して終わり
         deleteCookie("cm_order_v1");
@@ -530,6 +555,7 @@ export const App = () => {
         orderId: orderId || null,
         error: null,
         receiptUrl: null,
+        displayReserved: displayReserved || formatDisplayReserved(reserved),
       });
       dispatch({ type: "GOTO", step: "paymentResult" });
     } catch (e) {
@@ -546,16 +572,60 @@ export const App = () => {
     if (paymentTimerRef.current) clearTimeout(paymentTimerRef.current);
     destroyCardIfAny(); // 古いUI掃除
 
+    // When entering payment step we must:
+    // 1) Create an order on backend (send orderDate, reservedTime, items)
+    // 2) Save the returned orderId for later charge
+    // 3) Load Square SDK and move to input phase
     paymentTimerRef.current = setTimeout(async () => {
       try {
+        // validate reserved time
+        const reservedDate = parseReservedToDate(selectedTime);
+        if (!reservedDate) {
+          throw new Error("予約時刻が設定されていません。");
+        }
+
+        const createdAtIso = new Date().toISOString();
+        const reservedAtIso = reservedDate.toISOString();
+
+        // Build items (buildOrderItems already filters allowed ids)
+        const items = buildOrderItems(state.cart);
+        if (!items || items.length === 0) {
+          throw new Error("カートが空です");
+        }
+
+        // Format dates to LocalDateTime string expected by backend DTO
+        const orderDateLocal = toLocalDateTimeString(new Date(createdAtIso));
+        const reservedLocal = toLocalDateTimeString(reservedDate);
+
+        // Call backend to create order and obtain orderId
+        if (USE_MOCK_PAYMENT) {
+          // In development keep behavior consistent: still create a mock id
+          const mockOrderId = "MOCK-" + Math.floor(Math.random() * 100000);
+          setCurrentOrderId(mockOrderId);
+          setCurrentOrderCreatedAtIso(createdAtIso);
+        } else {
+          const orderResp = await Api.createOrder({
+            items,
+            orderDate: orderDateLocal,
+            reservedTime: reservedLocal,
+            amount: calculateSumPrice(),
+          });
+          const returnedOrderId = orderResp?.orderId;
+          if (!returnedOrderId)
+            throw new Error("注文作成に失敗しました (orderId 未取得)");
+          setCurrentOrderId(returnedOrderId);
+          setCurrentOrderCreatedAtIso(createdAtIso);
+        }
+
+        // Load Square SDK after order creation
         const cfg = await Api.getSquareConfig();
         await loadSquareSdk(cfg?.environment || "PRODUCTION");
-        setPaymentPhase("input"); // ← ここでは切り替えだけ（DOMはまだ）
+        setPaymentPhase("input"); // DOM will be rendered and next effect will attach card
       } catch (e) {
         alert(e?.message || "決済モジュールの初期化に失敗しました");
         dispatch({ type: "GOTO", step: "cart" });
       }
-    }, 1000);
+    }, 500);
 
     return () => {
       if (paymentTimerRef.current) clearTimeout(paymentTimerRef.current);
@@ -640,14 +710,31 @@ export const App = () => {
     if (!reservedDate) throw new Error("予約時刻が不正です");
 
     const reservedAtIso = reservedDate.toISOString();
-    const createdAtIso = new Date().toISOString();
     const amount = calculateSumPrice();
 
-    const cfg = await Api.getSquareConfig();
-    const applicationId = cfg?.applicationId;
-    const locationId = cfg?.locationId;
-    if (!applicationId || !locationId)
-      throw new Error("Square設定が不足しています。");
+    // Ensure we have an orderId (should have been created on entering payment)
+    let orderId = currentOrderId;
+    let createdAtIso = currentOrderCreatedAtIso || new Date().toISOString();
+
+    if (!orderId) {
+      // Fallback: create order synchronously if missing
+      if (USE_MOCK_PAYMENT) {
+        orderId = "MOCK-" + Math.floor(Math.random() * 100000);
+      } else {
+        const orderDateLocal = toLocalDateTimeString(new Date(createdAtIso));
+        const reservedLocal = toLocalDateTimeString(reservedDate);
+        const orderResp = await Api.createOrder({
+          items,
+          orderDate: orderDateLocal,
+          reservedTime: reservedLocal,
+          amount,
+        });
+        orderId = orderResp?.orderId;
+        if (!orderId) throw new Error("orderIdの発行に失敗しました");
+      }
+      setCurrentOrderId(orderId);
+      setCurrentOrderCreatedAtIso(createdAtIso);
+    }
 
     try {
       if (!cardRef.current) {
@@ -683,21 +770,13 @@ export const App = () => {
       }
       const sourceId = result.token;
 
-      let orderId, payment;
+      let payment;
       if (USE_MOCK_PAYMENT) {
-        orderId = "MOCK-" + Math.floor(Math.random() * 100000);
+        // Simulate a short delay
         await new Promise((r) => setTimeout(r, 300));
         payment = { status: "APPROVED", receiptUrl: "" };
       } else {
-        const order = await Api.createOrder({
-          items,
-          reservedAtIso,
-          createdAtIso,
-          amount,
-        });
-        orderId = order?.orderId;
-        if (!orderId) throw new Error("orderIdの発行に失敗しました");
-
+        // Send token + orderId to backend for processing
         payment = await Api.chargeOrder({
           orderId,
           sourceId,
@@ -710,6 +789,7 @@ export const App = () => {
 
       if (payment?.status === "APPROVED") {
         // cookie に保存（7日 -> 秒で指定）
+        const displayReserved = formatDisplayReserved(reservedDate);
         setCookieJSON(
           "cm_order_v1",
           {
@@ -717,7 +797,7 @@ export const App = () => {
             reservedAtIso,
             orderId,
             itemsCart: state.cart,
-            displayReserved: formatReservedTimeHHmm(reservedDate),
+            displayReserved,
           },
           7 * 24 * 60 * 60
         );
@@ -730,6 +810,7 @@ export const App = () => {
           orderId,
           error: null,
           receiptUrl: payment?.receiptUrl || null,
+          displayReserved,
         });
       } else {
         setPaymentOutcome({
@@ -737,14 +818,16 @@ export const App = () => {
           orderId,
           error: payment?.error || "決済が承認されませんでした",
           receiptUrl: null,
+          displayReserved: formatDisplayReserved(reservedDate),
         });
       }
     } catch (e) {
       setPaymentOutcome({
         ok: false,
-        orderId: null,
+        orderId: orderId || null,
         error: e?.message || "決済処理中にエラーが発生しました",
         receiptUrl: null,
+        displayReserved: formatDisplayReserved(reservedDate),
       });
     }
     dispatch({ type: "GOTO", step: "paymentResult" });
@@ -1080,8 +1163,14 @@ export const App = () => {
                 決済に失敗しました
               </p>
               {paymentOutcome.orderId && (
-                <p style={{ textAlign: "center", fontSize: 16, margin: "6px" }}>
-                  （注文番号: {paymentOutcome.orderId}）
+                <p
+                  style={{ textAlign: "center", fontSize: 24, margin: "18px" }}
+                >
+                  予約時刻：
+                  <b>
+                    {paymentOutcome.displayReserved ??
+                      formatReservedTimeHHmm(parseReservedToDate(selectedTime))}
+                  </b>
                 </p>
               )}
               <p style={{ textAlign: "center", fontSize: 16, margin: "6px" }}>
@@ -1101,6 +1190,7 @@ export const App = () => {
                       orderId: null,
                       error: null,
                       receiptUrl: null,
+                      displayReserved: null,
                     });
                     dispatch({ type: "GOTO", step: "cart" });
                   }}
@@ -1115,6 +1205,7 @@ export const App = () => {
                       orderId: null,
                       error: null,
                       receiptUrl: null,
+                      displayReserved: null,
                     });
                     dispatch({ type: "GOTO", step: "payment" });
                   }}
@@ -1155,8 +1246,13 @@ export const App = () => {
               margin: "2px",
             }}
           >
-            NNNNN
+            {paymentOutcome.orderId ?? "NNNNN"}
           </p>
+          {paymentOutcome.displayReserved && (
+            <p style={{ textAlign: "center", fontSize: 24, margin: "16px 0" }}>
+              予約日時：{paymentOutcome.displayReserved}
+            </p>
+          )}
           <Order cart={state.cart} price={prices} names={itemNames} />
         </>
       )}

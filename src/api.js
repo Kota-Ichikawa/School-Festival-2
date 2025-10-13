@@ -130,12 +130,12 @@ export const Api = {
 
   // 注文作成: POST /api/order/set
   // 送るボディは backend の OrderRequest DTO に合わせる必要あり。
-  // 現状フロントでは { items, reservedTime, createdAt, amount } の形を使っています。
-  async createOrder({ items, reservedAtIso, createdAtIso, amount }) {
+  // 要件に合わせ、orderDate（作成日時）, reservedTime（LocalDateTime形式）, items（[{itemId,quantity}]）を送る。
+  async createOrder({ items, orderDate, reservedTime, amount }) {
     const body = {
-      items,
-      reservedTime: reservedAtIso,
-      createdAt: createdAtIso,
+      orderDate, // LocalDateTime-ish string "yyyy-MM-dd'T'HH:mm:ss"
+      reservedTime, // LocalDateTime-ish string
+      items, // array of { itemId, quantity } filtered by buildOrderItems on frontend
       amount,
     };
     const res = await fetch("/api/order/set", {
@@ -145,9 +145,11 @@ export const Api = {
     });
     if (!res.ok) {
       // エラーハンドリングは上位で行う
+      const text = await res.text().catch(() => "");
+      console.warn("createOrder failed:", res.status, text);
       throw new Error("注文作成に失敗しました");
     }
-    return res.json(); // 期待: { orderId, ... }
+    return res.json(); // 期待: { orderId, ... }（他フィールドは破壊せずそのまま返す）
   },
 
   // 決済呼び出し: バックエンド PaymentController に合わせる
@@ -165,12 +167,16 @@ export const Api = {
       sourceId
     )}`;
     // PaymentController.createPayment は path variables のみ受け取る実装のため body は不要。
-    // もし backend が body を期待するよう変更したらここに JSON を付けてください。
+    // サーバで追加の検証が必要ならここで body を渡す（現在は不要）
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     });
-    if (!res.ok) throw new Error("決済APIが失敗しました");
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.warn("chargeOrder failed:", res.status, text);
+      throw new Error("決済APIが失敗しました");
+    }
     return res.json(); // { status:"APPROVED"|"DECLINED", receiptUrl?, error? }
   },
 
