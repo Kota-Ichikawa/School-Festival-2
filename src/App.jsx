@@ -31,9 +31,13 @@ import img_30 from "../src/image/img_30.jpg";
 import img_40 from "../src/image/img_40.jpg";
 import img_50 from "../src/image/img_50.jpg";
 
-// App.jsx の imports の直後に追加（開発用の一時コード）
-window.Api = Api; // ブラウザコンソールで Api.getSquareConfig() を叩けるようにする
-//WARNING:テストあとはけす
+// ブラウザコンソールで Api.getSquareConfig() を叩けるようにする
+//WARNING:テストの後は消す
+window.Api = Api;
+
+// バック連携前用のMOCKスイッチ
+//＜WARENING:本番は必ずfalseにすること＞
+const USE_MOCK_PAYMENT = true;
 
 // ------ 変数や定数 ------
 
@@ -64,7 +68,7 @@ const itemNames = {
   40: "【お得】角煮ドリンクセット",
   50: "【お得】角煮ドリンクセット大盛り",
   91: "コーラ",
-  92: "オレンジジュース",
+  92: "なっちゃんオレンジ",
   93: "三ツ矢サイダー",
   94: "烏龍茶",
 };
@@ -81,7 +85,7 @@ const isSoldout = {
   94: false,
 };
 
-//完成時にtitleに戻しておく
+//初期値
 const initialState = {
   step: "title",
   cart: {
@@ -112,9 +116,10 @@ const initialState = {
   },
 };
 
+//テスト時にSOLDOUT判定にしないための日付
 const testDate = new Date(2025, 8, 22, 12, 0, 0);
 
-// ------ ScreenState ------
+// ------ ScreenStateの動作定義 ------
 const screenState = (state, action) => {
   switch (action.type) {
     case "GOTO":
@@ -248,31 +253,10 @@ const screenState = (state, action) => {
 // ------ 本体 ------
 
 export const App = () => {
-  //＜DANGER:本番は必ずfalseにすること＞
-  const USE_MOCK_PAYMENT = true;
-
+  //ユーザーが選択した予約時刻
   const [selectedTime, setSelectedTime] = useState(null);
-  const [state, dispatch] = useReducer(screenState, initialState);
 
-  const [paymentPhase, setPaymentPhase] = useState("connecting");
-  const paymentTimerRef = useRef(null);
-
-  const [paymentOutcome, setPaymentOutcome] = useState({
-    ok: false,
-    orderId: null,
-    error: null,
-    receiptUrl: null,
-  });
-
-  const [usingDevCfg, setUsingDevCfg] = useState(false);
-
-  const [cardAttached, setCardAttached] = useState(false);
-
-  // billing 用の入力 state
-  const [billingFamilyName, setBillingFamilyName] = useState("");
-  const [billingGivenName, setBillingGivenName] = useState("");
-  const [billingEmail, setBillingEmail] = useState("");
-
+  // ------ 画面遷移useReducer用の関数 ------
   const goto = (s) => dispatch({ type: "GOTO", step: s });
   const next = () => {
     if (state.step === "menu" && calculateNumberOfDrinksInMenu() === 0) {
@@ -295,6 +279,7 @@ export const App = () => {
   const addItems = (id) => dispatch({ type: "ADD_ITEM", itemId: id });
   const removeItems = (id) => dispatch({ type: "REMOVE_ITEM", itemId: id });
 
+  //------ 計算用の関数 ------
   const calculateNumberOfDrinksInMenu = () => {
     return state.cart[30] + state.cart[40] + state.cart[50];
   };
@@ -325,6 +310,29 @@ export const App = () => {
       prices[50] * state.cart[50]
     );
   };
+
+  // ------ カード決済用の変数・関数 ------
+
+  //決済段階を表す変数
+  const [state, dispatch] = useReducer(screenState, initialState);
+  const [paymentPhase, setPaymentPhase] = useState("connecting");
+  const paymentTimerRef = useRef(null);
+
+  //決済結果を格納
+  const [paymentOutcome, setPaymentOutcome] = useState({
+    ok: false,
+    orderId: null,
+    error: null,
+    receiptUrl: null,
+  });
+
+  //Square のカード入力 UI が DOM にアタッチされているかどうか
+  const [cardAttached, setCardAttached] = useState(false);
+
+  // 決済時のbillingの入力(姓、名、メアドを格納する変数)
+  const [billingFamilyName, setBillingFamilyName] = useState("");
+  const [billingGivenName, setBillingGivenName] = useState("");
+  const [billingEmail, setBillingEmail] = useState("");
 
   // Square Card のインスタンス保持
   const cardRef = useRef(null);
@@ -366,7 +374,6 @@ export const App = () => {
   }
 
   async function ensureCardMounted(applicationId, locationId) {
-    // wait for DOM utility (より長めに待つように)
     function waitForContainer(timeoutMs = 3000, intervalMs = 50) {
       const start = Date.now();
       return new Promise((resolve) => {
@@ -380,7 +387,6 @@ export const App = () => {
       });
     }
 
-    // try attach with retries
     async function tryAttach(
       card,
       selector = "#card-container",
@@ -402,7 +408,7 @@ export const App = () => {
 
     if (!window.Square) throw new Error("Square SDKが読み込まれていません");
 
-    const container = await waitForContainer(4000, 50);
+    const container = await waitForContainer(8000, 50);
     if (!container) {
       throw new Error("#card-container が見つかりません（タイムアウト）。");
     }
@@ -455,7 +461,7 @@ export const App = () => {
     return;
   }
 
-  // === cookie復元: アプリ起動時に古い注文があればチェックして復元する ===
+  // ------ cookie復元: アプリ起動時に古い注文があればチェックして復元する ------
   useEffect(() => {
     try {
       const saved = getCookieJSON("cm_order_v1");
@@ -469,7 +475,7 @@ export const App = () => {
         return;
       }
 
-      // helper: try to parse reservedAtIso (ISO優先、HH:mmフォールバック)
+      // 日時をISOとして解釈、失敗したらHH:mmでフォールバック
       function parseReservedFromSaved(savedReserved, savedCreatedAt) {
         if (!savedReserved) return null;
         // 1) ISO parse
