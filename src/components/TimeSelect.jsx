@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 
 // テスト時のみ true にしてください。本番環境では必ず false に戻してください。
 const IS_DEBUG_MODE = false;
@@ -11,8 +11,6 @@ const INTERVAL_MINUTES = 5;
 
 //予約可能な時刻オプションの配列を生成する関数
 const generateTimeOptions = (now) => {
-  // const now = new Date();
-
   const startTargetTime = new Date(
     now.getTime() + START_OFFSET_MINUTES * 60000
   );
@@ -66,9 +64,19 @@ export const TimeSelect = ({ onTimeChange, testTime }) => {
   const currentMinutes = String(now.getMinutes()).padStart(2, "0");
   const formattedTime = `${currentHour}:${currentMinutes}`;
 
-  if (timeOptions.length > 0 && onTimeChange) {
-    onTimeChange(timeOptions[0].value);
-  }
+  // ← 修正: render中に onTimeChange を直接呼ばない
+  // マウント時 / timeOptions が変わったときに一度だけ呼ぶ
+  useEffect(() => {
+    if (timeOptions.length > 0 && typeof onTimeChange === "function") {
+      try {
+        onTimeChange(timeOptions[0].value);
+      } catch (e) {
+        // 親が同期的にエラーを投げても無視してループを防ぐ
+        console.warn("TimeSelect: onTimeChange threw:", e);
+      }
+    }
+    // onTimeChange は通常は安定（setState）だが、念のため依存に入れておく
+  }, [timeOptions, onTimeChange]);
 
   if (timeOptions.length === 0) {
     return (
