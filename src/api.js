@@ -2,11 +2,6 @@
 
 // WARNING: これはテスト環境用
 // WARNING: フロントだけで動くようにFALLBACK
-const FALLBACK_SQUARE = {
-  applicationId: "sandbox-sq0idb-TSpPtbWlulBoJyV0q3lPgQ",
-  locationId: "LKJK1TXBNV3GX",
-  environment: "SANDBOX",
-};
 
 function isValidAppId(id) {
   if (!id || typeof id !== "string") return false;
@@ -32,8 +27,8 @@ export const Api = {
             if (isValidAppId(appId)) {
               return {
                 applicationId: appId,
-                locationId: loc || FALLBACK_SQUARE.locationId,
-                environment: env || FALLBACK_SQUARE.environment,
+                locationId: loc,
+                environment: env,
               };
             } else {
               console.warn(
@@ -41,6 +36,7 @@ export const Api = {
                 appId
               );
             }
+
           } catch (e) {
             console.warn(
               "getSquareConfig: failed to parse JSON from /api/square/config:",
@@ -64,67 +60,76 @@ export const Api = {
     }
 
     // 2) fallback to text endpoint if available
-    try {
-      const res2 = await fetch("/api/payment/get/ApplicationId");
-      if (res2.ok) {
-        const text = (await res2.text()).trim();
-        if (isValidAppId(text)) {
-          return {
-            applicationId: text,
-            locationId: FALLBACK_SQUARE.locationId,
-            environment: FALLBACK_SQUARE.environment,
-          };
-        } else {
-          console.warn(
-            "getSquareConfig: /api/payment/get/ApplicationId returned invalid id:",
-            text
-          );
-        }
-      } else {
-        console.warn(
-          "getSquareConfig: /api/payment/get/ApplicationId returned not ok:",
-          res2.status
-        );
-      }
-    } catch (e) {
-      console.warn(
-        "getSquareConfig: fetch error /api/payment/get/ApplicationId:",
-        e
-      );
-    }
+    // try {
+    //   const res2 = await fetch("/api/payment/get/ApplicationId");
+    //   if (res2.ok) {
+    //     const text = (await res2.text()).trim();
+    //   } else {
+    //     console.warn(
+    //       "getSquareConfig: /api/payment/get/ApplicationId returned not ok:",
+    //       res2.status
+    //     );
+    //   }
+    // } catch (e) {
+    //   console.warn(
+    //     "getSquareConfig: fetch error /api/payment/get/ApplicationId:",
+    //     e
+    //   );
+    // }
 
     // 3) final fallback
-    console.warn("getSquareConfig: using FALLBACK_SQUARE (development only)");
-    return { ...FALLBACK_SQUARE };
+    // console.warn("getSquareConfig: using FALLBACK_SQUARE (development only)");
+
   },
 
   // 在庫（売切れ）取得:
   // 要求どおり: itemIds = [10,20,91,92,93,94] をループして個別取得する。
   // 各エンドポイント: GET /api/items/get/byitemId/{itemId}
   // 返り値: { soldout: { "<itemId>": true|false, ... } }
+  // 在庫（売切れ）取得（連動ルール付き）:
   async fetchSoldoutMap() {
-    const itemIds = [10, 20, 91, 92, 93, 94];
+    // APIから取得するIDは[10,20,91,92,93,94]のみ
+    const fetchIds = [10, 20, 91, 92, 93, 94];
     const soldout = {};
-    for (const id of itemIds) {
+
+    // 取得
+    for (const id of fetchIds) {
       try {
         const res = await fetch(`/api/items/get/byitemId/${id}`);
         if (!res.ok) {
-          console.warn(
-            `fetchSoldoutMap: failed to fetch item ${id}`,
-            res.status
-          );
-          // サーバがない/エラー時は安全側にして売切れとしない（false）
           soldout[id] = false;
           continue;
         }
         const item = await res.json();
-        // backend の Item model に available フィールドがある前提
-        soldout[id] = !item?.available; // available=false -> soldout true
+        // 明示的に available: false のときだけ売切れ
+        soldout[id] = item?.available === false;
       } catch (e) {
-        console.warn(`fetchSoldoutMap: network error for item ${id}`, e);
         soldout[id] = false;
+        console.warn(`fetchSoldoutMap: network error for item ${id}`, e);
       }
     }
+
+    // 連動ルール
+    // 10がfalseなら40もfalse（trueなら40もtrue）
+    soldout[40] = soldout[10];
+    // 20がfalseなら50もfalse（trueなら50もtrue）
+    soldout[50] = soldout[20];
+
+    // 91,92,93,94がすべてfalseなら30,40,50もfalse
+    if (
+      soldout[91] &&
+      soldout[92] &&
+      soldout[93] &&
+      soldout[94]
+    ) {
+      soldout[30] = true;
+      soldout[40] = true;
+      soldout[50] = true;
+    } else {
+      soldout[30] = false;
+
+    }
+
     return { soldout };
   },
 

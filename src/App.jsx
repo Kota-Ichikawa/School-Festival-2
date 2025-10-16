@@ -1,5 +1,5 @@
 import "./styles.css";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 import { useReducer } from "react";
 import { Header } from "./components/Header";
@@ -21,25 +21,26 @@ import {
   setCookieStr,
   getCookieStr,
   deleteCookie,
-  getCookieJSON as getCookieJSONAlias, // not used but keep for clarity
 } from "./cookies";
-
-import testImg from "../src/image/testImg.jpg";
 import img_10 from "../src/image/img_10.jpg";
 import img_20 from "../src/image/img_20.jpg";
 import img_30 from "../src/image/img_30.jpg";
 import img_40 from "../src/image/img_40.jpg";
 import img_50 from "../src/image/img_50.jpg";
+import img_91 from "../src/image/img_91.jpg";
+import img_92 from "../src/image/img_92.jpg";
+import img_93 from "../src/image/img_93.jpg";
+import img_94 from "../src/image/img_94.jpg";
 
-// ブラウザコンソールで Api.getSquareConfig() を叩けるようにする
-//WARNING:テストの後は消す
-window.Api = Api;
 
-// バック連携前用のMOCKスイッチ
-//＜WARNING:本番は必ずfalseにすること＞
+/* ブラウザコンソールで Api.getSquareConfig() を叩けるようにする */
+// WARNING:テストの後は消す
+// window.Api = Api;
+
+/* バック連携前用のMOCKスイッチ（本番は false に戻す） */
 const USE_MOCK_PAYMENT = false;
 
-// ------ 変数や定数 ------
+/* ------ 変数や定数 ------ */
 
 const steps = [
   "title",
@@ -52,13 +53,13 @@ const steps = [
   "numberTag",
 ];
 
-//値段
+/* 値段 */
 const prices = {
-  10: 420,
-  20: 620,
+  10: 470,
+  20: 670,
   30: 150,
-  40: 520,
-  50: 720,
+  40: 570,
+  50: 770,
 };
 
 const itemNames = {
@@ -73,23 +74,10 @@ const itemNames = {
   94: "烏龍茶",
 };
 
-const isSoldout = {
-  10: false,
-  20: false,
-  30: false,
-  40: false,
-  50: false,
-  91: false,
-  92: false,
-  93: false,
-  94: false,
-};
-
-//初期値
+/* 初期値 */
 const initialState = {
   step: "title",
   cart: {
-    //以下は内部処理のみに使う商品ID
     91: 0,
     92: 0,
     93: 0,
@@ -98,7 +86,6 @@ const initialState = {
     40: 0,
     50: 0,
 
-    //以下は実際に存在する商品ID
     10: 0,
     20: 0,
     31: 0,
@@ -116,10 +103,16 @@ const initialState = {
   },
 };
 
-//テスト時にSOLDOUT判定にしないための日付
+/* テスト時にSOLDOUT判定にしないための日付 */
 const testDate = new Date(2025, 8, 22, 12, 0, 0);
+const appStartTime = Date.now();
+function getCurrentTestDate() {
+  const elapsedMs = Date.now() - appStartTime; // 経過ミリ秒
+  return new Date(testDate.getTime() + elapsedMs);
+}
 
-// helper: format Date -> "yyyy-MM-dd'T'HH:mm:ss" (LocalDateTime style, no Z)
+
+/* helper: format Date -> "yyyy-MM-dd'T'HH:mm:ss" (LocalDateTime style, no Z) */
 function toLocalDateTimeString(d) {
   const D = new Date(d);
   const p = (n) => String(n).padStart(2, "0");
@@ -128,7 +121,7 @@ function toLocalDateTimeString(d) {
   )}:${p(D.getMinutes())}:${p(D.getSeconds())}`;
 }
 
-// helper: display-friendly reserved datetime "YYYY-MM-DD HH:mm"
+/* helper: display-friendly reserved datetime "YYYY-MM-DD HH:mm" */
 function formatDisplayReserved(d) {
   const D = new Date(d);
   const p = (n) => String(n).padStart(2, "0");
@@ -137,7 +130,7 @@ function formatDisplayReserved(d) {
   )}:${p(D.getMinutes())}`;
 }
 
-// ------ ScreenStateの動作定義 ------
+/* ------ ScreenStateの動作定義 ------ */
 const screenState = (state, action) => {
   switch (action.type) {
     case "GOTO":
@@ -268,13 +261,17 @@ const screenState = (state, action) => {
   }
 };
 
-// ------ 本体 ------
+/* ------ 本体 ------ */
 
 export const App = () => {
-  //ユーザーが選択した予約時刻
-  const [selectedTime, setSelectedTime] = useState(null);
+  const [isSoldout, setIsSoldout] = useState({
+    10: false, 20: false, 30: false, 40: false, 50: false,
+    91: false, 92: false, 93: false, 94: false,
+  });
 
-  // ------ 画面遷移useReducer用の関数 ------
+  const [selectedTime, setSelectedTime] = useState(null);
+  const [state, dispatch] = useReducer(screenState, initialState);
+
   const goto = (s) => dispatch({ type: "GOTO", step: s });
   const next = () => {
     if (state.step === "menu" && calculateNumberOfDrinksInMenu() === 0) {
@@ -297,7 +294,6 @@ export const App = () => {
   const addItems = (id) => dispatch({ type: "ADD_ITEM", itemId: id });
   const removeItems = (id) => dispatch({ type: "REMOVE_ITEM", itemId: id });
 
-  //------ 計算用の関数 ------
   const calculateNumberOfDrinksInMenu = () => {
     return state.cart[30] + state.cart[40] + state.cart[50];
   };
@@ -319,7 +315,7 @@ export const App = () => {
     );
   };
 
-  const calculateSumPrice = () => {
+  const calculateSumPrice = useCallback(() => {
     return (
       prices[10] * state.cart[10] +
       prices[20] * state.cart[20] +
@@ -327,16 +323,20 @@ export const App = () => {
       prices[40] * state.cart[40] +
       prices[50] * state.cart[50]
     );
-  };
+  }, [state.cart]);
 
-  // ------ カード決済用の変数・関数 ------
+  /* 売り切れ状態を管理する関数 */
+  useEffect(() => {
+    if (state.step === "menu") {
+      Api.fetchSoldoutMap().then(({ soldout }) => {
+        setIsSoldout(soldout);
+      });
+    }
+  }, [state.step]);
 
-  //決済段階を表す変数
-  const [state, dispatch] = useReducer(screenState, initialState);
+  /* カード決済用の変数・関数 */
   const [paymentPhase, setPaymentPhase] = useState("connecting");
   const paymentTimerRef = useRef(null);
-
-  //決済結果を格納（displayReserved を追加）
   const [paymentOutcome, setPaymentOutcome] = useState({
     ok: false,
     orderId: null,
@@ -344,21 +344,13 @@ export const App = () => {
     receiptUrl: null,
     displayReserved: null,
   });
-
-  // Square flow: orderId is created at entry to payment step
   const [currentOrderId, setCurrentOrderId] = useState(null);
   const [currentOrderCreatedAtIso, setCurrentOrderCreatedAtIso] =
     useState(null);
-
-  //Square のカード入力 UI が DOM にアタッチされているかどうか
   const [cardAttached, setCardAttached] = useState(false);
-
-  // 決済時のbillingの入力(姓、名、メアドを格納する変数)
   const [billingFamilyName, setBillingFamilyName] = useState("");
   const [billingGivenName, setBillingGivenName] = useState("");
   const [billingEmail, setBillingEmail] = useState("");
-
-  // Square Card のインスタンス保持
   const cardRef = useRef(null);
 
   function clearCardContainer() {
@@ -366,7 +358,7 @@ export const App = () => {
     if (el) el.innerHTML = "";
   }
 
-  async function destroyCardIfAny() {
+  const destroyCardIfAny = useCallback(async () => {
     try {
       if (cardRef.current && typeof cardRef.current.destroy === "function") {
         await cardRef.current.destroy();
@@ -375,117 +367,103 @@ export const App = () => {
     } finally {
       cardRef.current = null;
       clearCardContainer();
-      // UI 側フラグを戻しておく
       try {
         setCardAttached(false);
-      } catch {}
+      } catch { }
     }
-  }
+  }, [/* no external deps other than stable refs/setters */]);
 
-  function pTimeout(promise, ms, msg = "attach timeout") {
-    return new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error(msg)), ms);
-      promise
-        .then((v) => {
-          clearTimeout(t);
-          resolve(v);
-        })
-        .catch((e) => {
-          clearTimeout(t);
-          reject(e);
+  /* pTimeout は未使用だったので削除しました */
+
+
+  const ensureCardMounted = useCallback(
+    async (applicationId, locationId) => {
+      function waitForContainer(timeoutMs = 3000, intervalMs = 50) {
+        const start = Date.now();
+        return new Promise((resolve) => {
+          const check = () => {
+            const el = document.getElementById("card-container");
+            if (el) return resolve(el);
+            if (Date.now() - start >= timeoutMs) return resolve(null);
+            setTimeout(check, intervalMs);
+          };
+          check();
         });
-    });
-  }
+      }
 
-  async function ensureCardMounted(applicationId, locationId) {
-    function waitForContainer(timeoutMs = 3000, intervalMs = 50) {
-      const start = Date.now();
-      return new Promise((resolve) => {
-        const check = () => {
-          const el = document.getElementById("card-container");
-          if (el) return resolve(el);
-          if (Date.now() - start >= timeoutMs) return resolve(null);
-          setTimeout(check, intervalMs);
-        };
-        check();
-      });
-    }
+      async function tryAttach(
+        card,
+        selector = "#card-container",
+        tries = 4,
+        delayMs = 200
+      ) {
+        for (let i = 0; i < tries; i++) {
+          try {
+            await card.attach(selector);
+            console.log("DEBUG: card.attach succeeded (attempt)", i + 1);
+            return true;
+          } catch (e) {
+            console.warn("DEBUG: card.attach attempt failed", i + 1, e);
+            await new Promise((r) => setTimeout(r, delayMs));
+          }
+        }
+        return false;
+      }
 
-    async function tryAttach(
-      card,
-      selector = "#card-container",
-      tries = 4,
-      delayMs = 200
-    ) {
-      for (let i = 0; i < tries; i++) {
+      if (!window.Square) throw new Error("Square SDKが読み込まれていません");
+
+      const container = await waitForContainer(8000, 50);
+      if (!container) {
+        throw new Error("#card-container が見つかりません（タイムアウト）。");
+      }
+
+      if (cardRef.current && container.childElementCount === 0) {
         try {
-          await card.attach(selector);
-          console.log("DEBUG: card.attach succeeded (attempt)", i + 1);
-          return true;
+          const ok = await tryAttach(cardRef.current, "#card-container", 4, 300);
+          if (ok) {
+            setCardAttached(true);
+            return;
+          }
+          await destroyCardIfAny();
         } catch (e) {
-          console.warn("DEBUG: card.attach attempt failed", i + 1, e);
-          await new Promise((r) => setTimeout(r, delayMs));
+          await destroyCardIfAny();
         }
       }
-      return false;
-    }
 
-    if (!window.Square) throw new Error("Square SDKが読み込まれていません");
-
-    const container = await waitForContainer(8000, 50);
-    if (!container) {
-      throw new Error("#card-container が見つかりません（タイムアウト）。");
-    }
-
-    // 再アタッチを試みる（既に cardRef が存在するが DOM が空の場合）
-    if (cardRef.current && container.childElementCount === 0) {
-      try {
-        const ok = await tryAttach(cardRef.current, "#card-container", 4, 300);
-        if (ok) {
-          setCardAttached(true);
-          return;
-        }
-        await destroyCardIfAny();
-      } catch (e) {
-        await destroyCardIfAny();
-      }
-    }
-
-    // 新規作成ルート
-    if (!cardRef.current) {
-      let payments;
-      try {
-        payments = window.Square.payments(applicationId, locationId);
-      } catch (e) {
-        throw new Error("Square.payments の初期化に失敗: " + (e?.message || e));
-      }
-
-      const card = await payments.card();
-
-      const attached = await tryAttach(card, "#card-container", 4, 300);
-      if (!attached) {
+      if (!cardRef.current) {
+        let payments;
         try {
-          await card.destroy?.();
-        } catch {}
-        throw new Error(
-          "カードUIの attach に失敗しました（複数回リトライしてもダメでした）。"
-        );
+          payments = window.Square.payments(applicationId, locationId);
+        } catch (e) {
+          throw new Error("Square.payments の初期化に失敗: " + (e?.message || e));
+        }
+
+        const card = await payments.card();
+
+        const attached = await tryAttach(card, "#card-container", 4, 300);
+        if (!attached) {
+          try {
+            await card.destroy?.();
+          } catch { }
+          throw new Error(
+            "カードUIの attach に失敗しました（複数回リトライしてもダメでした）。"
+          );
+        }
+
+        cardRef.current = card;
+        setCardAttached(true);
+        return;
       }
 
-      cardRef.current = card;
-      // attach 成功をアプリに伝える
-      setCardAttached(true);
+      if (cardRef.current && container.childElementCount > 0) {
+        setCardAttached(true);
+      }
       return;
-    }
+    },
+    [destroyCardIfAny]
+  );
 
-    // 既に attached されていて問題なければフラグを true に
-    if (cardRef.current && container.childElementCount > 0) {
-      setCardAttached(true);
-    }
-    return;
-  }
-
-  // ------ cookie復元: アプリ起動時に古い注文があればチェックして復元する ------
+  /* cookie復元: マウント時にのみ実行 */
   useEffect(() => {
     try {
       const saved = getCookieJSON("cm_order_v1");
@@ -495,18 +473,14 @@ export const App = () => {
       const { createdAt, reservedAtIso, orderId, itemsCart, displayReserved } =
         saved;
       if (!reservedAtIso) {
-        // 不正なデータなら削除して終わり
         deleteCookie("cm_order_v1");
         return;
       }
 
-      // 日時をISOとして解釈、失敗したらHH:mmでフォールバック
       function parseReservedFromSaved(savedReserved, savedCreatedAt) {
         if (!savedReserved) return null;
-        // 1) ISO parse
         const byIso = new Date(savedReserved);
         if (!isNaN(byIso.getTime())) return byIso;
-        // 2) try HH:mm
         const hhmm = String(savedReserved).trim();
         const m = hhmm.match(/^(\d{1,2}):(\d{2})$/);
         if (m) {
@@ -543,9 +517,7 @@ export const App = () => {
         return;
       }
 
-      console.log(
-        "DEBUG: cm_order_v1 is still valid. Restoring state from cookie."
-      );
+      console.log("DEBUG: cm_order_v1 is still valid. Restoring state from cookie.");
       if (itemsCart && typeof itemsCart === "object") {
         dispatch({ type: "REPLACE_CART", cart: itemsCart });
       }
@@ -565,41 +537,37 @@ export const App = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* useEffect: payment step に入ったら order 作成と Square ロードを行う
+     calculateSumPrice, destroyCardIfAny, selectedTime, state.cart を参照するが
+     これらは意図的に _マウント/遷移ベース_ でのみ処理したいため
+     ルールを無効化している（必要な場合は useCallback 等で安定化する）。
+  */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (state.step !== "payment") return;
 
     setPaymentPhase("connecting");
     if (paymentTimerRef.current) clearTimeout(paymentTimerRef.current);
-    destroyCardIfAny(); // 古いUI掃除
+    destroyCardIfAny();
 
-    // When entering payment step we must:
-    // 1) Create an order on backend (send orderDate, reservedTime, items)
-    // 2) Save the returned orderId for later charge
-    // 3) Load Square SDK and move to input phase
     paymentTimerRef.current = setTimeout(async () => {
       try {
-        // validate reserved time
         const reservedDate = parseReservedToDate(selectedTime);
         if (!reservedDate) {
           throw new Error("予約時刻が設定されていません。");
         }
 
         const createdAtIso = new Date().toISOString();
-        const reservedAtIso = reservedDate.toISOString();
-
-        // Build items (buildOrderItems already filters allowed ids)
+        // reservedAtIso was unused previously; do not assign unused variables
         const items = buildOrderItems(state.cart);
         if (!items || items.length === 0) {
           throw new Error("カートが空です");
         }
 
-        // Format dates to LocalDateTime string expected by backend DTO
         const orderDateLocal = toLocalDateTimeString(new Date(createdAtIso));
         const reservedLocal = toLocalDateTimeString(reservedDate);
 
-        // Call backend to create order and obtain orderId
         if (USE_MOCK_PAYMENT) {
-          // In development keep behavior consistent: still create a mock id
           const mockOrderId = "MOCK-" + Math.floor(Math.random() * 100000);
           setCurrentOrderId(mockOrderId);
           setCurrentOrderCreatedAtIso(createdAtIso);
@@ -617,10 +585,9 @@ export const App = () => {
           setCurrentOrderCreatedAtIso(createdAtIso);
         }
 
-        // Load Square SDK after order creation
         const cfg = await Api.getSquareConfig();
         await loadSquareSdk(cfg?.environment || "PRODUCTION");
-        setPaymentPhase("input"); // DOM will be rendered and next effect will attach card
+        setPaymentPhase("input");
       } catch (e) {
         alert(e?.message || "決済モジュールの初期化に失敗しました");
         dispatch({ type: "GOTO", step: "cart" });
@@ -631,8 +598,13 @@ export const App = () => {
       if (paymentTimerRef.current) clearTimeout(paymentTimerRef.current);
       destroyCardIfAny();
     };
-  }, [state.step]);
+  }, [state.step, selectedTime, state.cart, calculateSumPrice, destroyCardIfAny]);
 
+  /* useEffect: paymentPhase=input のとき ensureCardMounted を呼ぶ。ensureCardMounted を
+     依存配列に追加するとループするリスクがあるため明示的に無効化しています。
+     （必要なら ensureCardMounted を useCallback 化するのが安全です）
+  */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (state.step !== "payment") return;
     if (paymentPhase !== "input") return;
@@ -641,24 +613,23 @@ export const App = () => {
       (async () => {
         try {
           const cfg = await Api.getSquareConfig();
-          // DOMが描画された後に確実に ensureCardMounted を実行
           await ensureCardMounted(cfg.applicationId, cfg.locationId);
         } catch (e) {
           alert(e?.message || "#card-container の初期化に失敗しました");
           dispatch({ type: "GOTO", step: "cart" });
         }
       })();
-    }, 100); // 100ミリ秒のわずかな遅延を設定
+    }, 100);
 
     return () => {
-      clearTimeout(attachTimer); // クリーンアップ関数にタイマーのクリアを追加
+      clearTimeout(attachTimer);
     };
-  }, [state.step, paymentPhase]);
+  }, [state.step, paymentPhase, ensureCardMounted]);
 
   const canUseCookies = async () => {
     try {
       const key = "__cm_cookie_test";
-      setCookieStr(key, "1", 60); // 60秒
+      setCookieStr(key, "1", 60);
       const v = getCookieStr(key);
       deleteCookie(key);
       return v === "1";
@@ -667,7 +638,6 @@ export const App = () => {
     }
   };
 
-  // billing-contact must be provided; no dummies
   function isValidEmail(email) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ""));
   }
@@ -686,7 +656,7 @@ export const App = () => {
     }
 
     return {
-      amount: String(amountYen), // 例: "720"（JPYは小数なし）
+      amount: String(amountYen),
       currencyCode: "JPY",
       intent: "CHARGE",
       customerInitiated: true,
@@ -712,12 +682,10 @@ export const App = () => {
     const reservedAtIso = reservedDate.toISOString();
     const amount = calculateSumPrice();
 
-    // Ensure we have an orderId (should have been created on entering payment)
     let orderId = currentOrderId;
     let createdAtIso = currentOrderCreatedAtIso || new Date().toISOString();
 
     if (!orderId) {
-      // Fallback: create order synchronously if missing
       if (USE_MOCK_PAYMENT) {
         orderId = "MOCK-" + Math.floor(Math.random() * 100000);
       } else {
@@ -742,9 +710,7 @@ export const App = () => {
         await ensureCardMounted(cfg2.applicationId, cfg2.locationId);
         if (!cardRef.current) throw new Error("カードUIの初期化に失敗しました");
       }
-      console.log("DEBUG: Card UIアタッチ成功後のcardRef:", cardRef.current);
 
-      // billing validation (strict — no fallback)
       if (
         !billingFamilyName.trim() ||
         !billingGivenName.trim() ||
@@ -772,11 +738,9 @@ export const App = () => {
 
       let payment;
       if (USE_MOCK_PAYMENT) {
-        // Simulate a short delay
         await new Promise((r) => setTimeout(r, 300));
-        payment = { status: "APPROVED", receiptUrl: "" };
+        payment = { status: "COMPLETED", receiptUrl: "" };
       } else {
-        // Send token + orderId to backend for processing
         payment = await Api.chargeOrder({
           orderId,
           sourceId,
@@ -787,8 +751,7 @@ export const App = () => {
         });
       }
 
-      if (payment?.status === "APPROVED") {
-        // cookie に保存（7日 -> 秒で指定）
+      if (payment?.status === "COMPLETED") {
         const displayReserved = formatDisplayReserved(reservedDate);
         setCookieJSON(
           "cm_order_v1",
@@ -802,7 +765,6 @@ export const App = () => {
           7 * 24 * 60 * 60
         );
 
-        // 保存内容を確認出力
         console.log("DEBUG: cm_order_v1 saved:", getCookieJSON("cm_order_v1"));
 
         setPaymentOutcome({
@@ -832,8 +794,8 @@ export const App = () => {
     }
     dispatch({ type: "GOTO", step: "paymentResult" });
   };
-
-  // ------ ここからreturn ------
+  /* ここから JSX  */
+  window.isSoldout = isSoldout;
   return (
     <>
       <header>
@@ -979,6 +941,7 @@ export const App = () => {
                 remove={removeItems}
                 difference={calculateDifferenceOfDrinks()}
                 isDrinkScreen={state.step === "drink"}
+                image={img_91}
                 isSoldout={isSoldout[91]}
               />
               <Menu
@@ -991,6 +954,7 @@ export const App = () => {
                 remove={removeItems}
                 difference={calculateDifferenceOfDrinks()}
                 isDrinkScreen={state.step === "drink"}
+                image={img_92}
                 isSoldout={isSoldout[92]}
               />
             </div>
@@ -1005,6 +969,7 @@ export const App = () => {
                 remove={removeItems}
                 difference={calculateDifferenceOfDrinks()}
                 isDrinkScreen={state.step === "drink"}
+                image={img_93}
                 isSoldout={isSoldout[93]}
               />
               <Menu
@@ -1017,6 +982,7 @@ export const App = () => {
                 remove={removeItems}
                 difference={calculateDifferenceOfDrinks()}
                 isDrinkScreen={state.step === "drink"}
+                image={img_94}
                 isSoldout={isSoldout[94]}
               />
             </div>
@@ -1045,8 +1011,8 @@ export const App = () => {
       {state.step === "time" && (
         <>
           <div className="reservation-page-wrapper">
-            {/* DANGER:本番はtestTimeはfalse、テスト時はtestDateにする */}
-            <TimeSelect onTimeChange={setSelectedTime} testTime={testDate} />
+            {/* DANGER:本番はtestTimeはfalse、テスト時はgetCurrentTestDate()にする */}
+            <TimeSelect onTimeChange={setSelectedTime} testTime={false} />
           </div>
         </>
       )}
@@ -1102,9 +1068,9 @@ export const App = () => {
                 }}
               >
                 {cardAttached &&
-                billingFamilyName.trim() &&
-                billingGivenName.trim() &&
-                billingEmail.trim()
+                  billingFamilyName.trim() &&
+                  billingGivenName.trim() &&
+                  billingEmail.trim()
                   ? "支払う"
                   : "支払う"}
               </button>
@@ -1268,8 +1234,8 @@ export const App = () => {
               next={next}
               goto={goto}
               currentStep={state.step}
-              //WARNIG:本番はtestTimeはfalse、テスト時はtestDateにする
-              testTime={testDate}
+              //WARNIG:本番はtestTimeはfalse、テスト時はgetCurrentTestDate()にする
+              testTime={false}
               numOfChosenMenu={calculateSumInMenu()}
               numOfOrderedDrinks={calculateNumberOfDrinksInMenu()}
               difference={calculateDifferenceOfDrinks()}

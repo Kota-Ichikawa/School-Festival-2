@@ -2,11 +2,12 @@ const encode = (v) => encodeURIComponent(v);
 const decode = (v) => decodeURIComponent(v);
 
 // 判定: 開発ローカルなら secure を付けない（localhost / 127.0.0.1 / ::1）
-// 本番では location.protocol === "https:" で secure を付与する
+// 本番では window.location.protocol === "https:" で secure を付与する
 function shouldUseSecureFlag() {
   try {
-    const host = (location && location.hostname) || "";
-    const proto = (location && location.protocol) || "";
+    const hasWindow = typeof window !== "undefined" && window.location;
+    const host = hasWindow ? window.location.hostname : "";
+    const proto = hasWindow ? window.location.protocol : "";
     // treat localhost and loopback as non-secure dev hosts
     const isLocalhost =
       host === "localhost" || host === "127.0.0.1" || host === "::1";
