@@ -1,3 +1,5 @@
+# This App is Made from 2500-lines Code.
+
 # School-Festival-2
 Created with CodeSandbox
 # 推奨環境 / セットアップガイド
