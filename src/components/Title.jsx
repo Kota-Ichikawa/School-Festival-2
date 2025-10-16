@@ -110,7 +110,6 @@ const subtitle = {
 };
 
 const primaryBtn = {
-  width: "100%",
   height: "64px",
   fontSize: "22px",
   fontWeight: "bold",

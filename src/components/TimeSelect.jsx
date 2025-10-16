@@ -1,12 +1,9 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useMemo, useEffect } from "react";
 
-// テスト時のみ true にしてください。本番環境では必ず false に戻してください。
-const IS_DEBUG_MODE = false;
-const DEBUG_TIME = new Date(2025, 8, 22, 12, 0, 0);
 
 // 定数
 const START_OFFSET_MINUTES = 10;
-const LAST_ORDER_HOUR = 17;
+const LAST_ORDER_HOUR = 17
 const INTERVAL_MINUTES = 5;
 
 //予約可能な時刻オプションの配列を生成する関数
@@ -55,8 +52,9 @@ const generateTimeOptions = (now) => {
 
 // 本体
 export const TimeSelect = ({ onTimeChange, testTime }) => {
-  // useMemoで計算結果をキャッシュし、不要な再計算を防ぐ
-  const now = testTime || new Date();
+  const now = useMemo(() => {
+    return testTime || new Date();
+  }, [testTime]);
   const timeOptions = useMemo(() => generateTimeOptions(now), [now]);
 
   //現在時刻をフォーマット

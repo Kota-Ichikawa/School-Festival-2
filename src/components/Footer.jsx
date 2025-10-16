@@ -99,8 +99,6 @@ const footerStyle = {
   minHeight: "60px",
   padding: "0 10px",
   margin: "0px",
-  display: "flex",
-  alignItems: "center",
   //画面最下部に固定＆追従
   position: "fixed",
   bottom: "0",

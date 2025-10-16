@@ -1,14 +1,6 @@
 import logoImg from "../image/logo.jpg";
 
-export const Header = () => {
-  return (
-    <div style={headerStyle}>
-      <img src={logoImg} style={logoStyle} />
-    </div>
-  );
-};
-
-headerStyle = {
+const headerStyle = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -19,8 +11,16 @@ headerStyle = {
   margin: "0px",
 };
 
-logoStyle = {
+const logoStyle = {
   width: "40%",
   height: "auto",
   borderRadius: "2px",
+};
+
+export const Header = () => {
+  return (
+    <div style={headerStyle}>
+      <img src={logoImg} alt="CODEMATESロゴ" style={logoStyle} />
+    </div>
+  );
 };

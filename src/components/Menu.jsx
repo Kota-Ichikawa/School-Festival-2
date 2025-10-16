@@ -92,8 +92,6 @@ export const Menu = (props) => {
   );
 };
 
-const judge = (difference, count) => {};
-
 const itemStyle = {
   width: "40%",
   minHeight: "200px",
