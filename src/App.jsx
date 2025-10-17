@@ -1247,6 +1247,11 @@ export const App = () => {
   );
 };
 
-//ThisAppMadeBy
-//Mika.Misono, Seia.Yurizono, Nagisa.Kirifuji,
-//Ichika.Nakamasa, Hasumi.Hanekawa
+
+//Trinity General School 
+//Mika.Misono, Seia.Yurizono, Nagisa.Kirifuji, Ichika.Nakamasa, Hasumi.Hanekawa
+
+//This App Made By
+//Kota.Rouko.Ichikawa, Hikaru.Keiron.Takano, Ryosuke.Hrs.Nagashima
+
+//2025.10.17
