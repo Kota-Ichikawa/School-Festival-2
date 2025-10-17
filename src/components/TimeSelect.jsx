@@ -4,6 +4,7 @@ import React, { useMemo, useEffect } from "react";
 // 定数
 const START_OFFSET_MINUTES = 10;
 const LAST_ORDER_HOUR = 17
+const LAST_ORDER_MINUTE = 10;
 const INTERVAL_MINUTES = 5;
 
 //予約可能な時刻オプションの配列を生成する関数
@@ -34,7 +35,7 @@ const generateTimeOptions = (now) => {
 
     if (
       currentHour > LAST_ORDER_HOUR ||
-      (currentHour === LAST_ORDER_HOUR && currentMinutes > 0)
+      (currentHour === LAST_ORDER_HOUR && currentMinutes > LAST_ORDER_MINUTE)
     ) {
       break;
     }
