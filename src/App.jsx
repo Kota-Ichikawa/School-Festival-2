@@ -1074,6 +1074,7 @@ export const App = () => {
                   ? "支払う"
                   : "支払う"}
               </button>
+              <p style={{ color: "#808080" }}>この決済は外部決済サービス「Square」によって行われます</p>
             </div>
           )}
         </>
