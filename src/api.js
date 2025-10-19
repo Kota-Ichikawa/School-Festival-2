@@ -162,10 +162,6 @@ export const Api = {
   async chargeOrder({
     orderId,
     sourceId,
-    items,
-    reservedAtIso,
-    createdAtIso,
-    amount,
   }) {
     // path variables に sourceId を載せる（エンコード必須）
     const url = `/api/payment/create/${orderId}/${encodeURIComponent(

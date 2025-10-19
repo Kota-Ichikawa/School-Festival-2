@@ -272,6 +272,9 @@ export const App = () => {
   const [selectedTime, setSelectedTime] = useState(null);
   const [state, dispatch] = useReducer(screenState, initialState);
 
+  // 追加: 送信中フラグ
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const goto = (s) => dispatch({ type: "GOTO", step: s });
   const next = () => {
     if (state.step === "menu" && calculateNumberOfDrinksInMenu() === 0) {
@@ -744,11 +747,12 @@ export const App = () => {
         payment = await Api.chargeOrder({
           orderId,
           sourceId,
-          items,
-          reservedAtIso,
-          createdAtIso,
-          amount,
         });
+      }
+
+      //hasKeyError（重複決済）がtrueなら何も（画面遷移含め）せず終了
+      if (payment?.hasKeyError) {
+        return;
       }
 
       if (payment?.status === "COMPLETED") {
@@ -795,9 +799,14 @@ export const App = () => {
     dispatch({ type: "GOTO", step: "paymentResult" });
   };
   /* ここから JSX  */
-  window.isSoldout = isSoldout;
+  // window.isSoldout = isSoldout;
   return (
     <>
+      {/* スピナー用の keyframes をここで一度だけ定義 */}
+      <style>{`
+        @keyframes cm-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
+
       <header>
         <Header />
         <div style={{ minHeight: "10px" }}></div>
@@ -1011,7 +1020,7 @@ export const App = () => {
       {state.step === "time" && (
         <>
           <div className="reservation-page-wrapper">
-            {/* DANGER:本番はtestTimeはfalse、テスト時はgetCurrentTestDate()にする */}
+            {/* WARNING:本番はtestTimeはfalse、テスト時はgetCurrentTestDate()にする */}
             <TimeSelect onTimeChange={setSelectedTime} testTime={false} />
           </div>
         </>
@@ -1051,179 +1060,235 @@ export const App = () => {
               </div>
 
               <div id="card-container" style={{ margin: "12px 10px" }} />
-              <button
-                style={{ marginLeft: 10, width: 160, height: 32, fontSize: 14 }}
-                disabled={
+
+              {/* 支払うボタン（送信中は無効化 & スタイル変更） */}
+              {(() => {
+                const baseBtnStyle = {
+                  marginLeft: 10,
+                  width: 160,
+                  height: 32,
+                  fontSize: 14,
+                  borderRadius: 4,
+                  border: "1px solid #ccc",
+                  backgroundColor: "#fff",
+                  color: "#222",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                };
+                const processingBtnStyle = {
+                  ...baseBtnStyle,
+                  backgroundColor: "#f4f6f8",
+                  color: "#888",
+                  border: "1px solid #ddd",
+                  cursor: "not-allowed",
+                  opacity: 0.95,
+                };
+                const disabledReason =
                   !cardAttached ||
                   !billingFamilyName.trim() ||
                   !billingGivenName.trim() ||
-                  !billingEmail.trim()
-                }
-                onClick={async () => {
-                  try {
-                    await handleSubmitOrderFlow();
-                  } catch (e) {
-                    alert(e?.message || "決済でエラーが発生しました");
-                  }
-                }}
-              >
-                {cardAttached &&
-                  billingFamilyName.trim() &&
-                  billingGivenName.trim() &&
-                  billingEmail.trim()
-                  ? "支払う"
-                  : "支払う"}
-              </button>
-              <p style={{ color: "#808080" }}>この決済は外部決済サービス「Square」によって行われます</p>
-            </div>
-          )}
-        </>
-      )}
-      {state.step === "paymentResult" && (
-        <>
-          {paymentOutcome.ok ? (
-            <div style={{ padding: "12px" }}>
-              <p
-                style={{
-                  textAlign: "center",
-                  fontSize: 22,
-                  fontWeight: "bold",
-                  margin: "16px auto",
-                }}
-              >
-                決済が完了しました
-              </p>
-              <p style={{ textAlign: "center", fontSize: 18, margin: "6px" }}>
-                注文番号：<b>{paymentOutcome.orderId}</b>
-              </p>
-              {paymentOutcome.receiptUrl && (
-                <p style={{ textAlign: "center", margin: "6px" }}>
-                  <a
-                    href={paymentOutcome.receiptUrl}
-                    target="_blank"
-                    rel="noreferrer"
+                  !billingEmail.trim();
+
+                return (
+                  <button
+                    style={isSubmitting ? processingBtnStyle : baseBtnStyle}
+                    disabled={isSubmitting || disabledReason}
+                    aria-disabled={isSubmitting || disabledReason}
+                    onClick={async () => {
+                      if (isSubmitting) return; // 二重ガード
+                      setIsSubmitting(true);
+                      try {
+                        await handleSubmitOrderFlow();
+                      } catch (e) {
+                        // handleSubmitOrderFlow 内でもエラーハンドリングしているが、念のため
+                        alert(e?.message || "決済でエラーが発生しました");
+                      } finally {
+                        // 成功時は画面遷移でアンマウントされるため無害。
+                        setIsSubmitting(false);
+                      }
+                    }}
                   >
-                    レシートを開く
-                  </a>
-                </p>
-              )}
-              <div style={{ textAlign: "center", marginTop: 16 }}>
-                <button
-                  style={{ width: 160, height: 44, fontSize: 18 }}
-                  onClick={() => dispatch({ type: "GOTO", step: "numberTag" })}
-                >
-                  番号札を表示
-                </button>
-              </div>
+                    {isSubmitting ? (
+                      <>
+                        <span
+                          style={{
+                            width: 14,
+                            height: 14,
+                            border: "2px solid #ccc",
+                            borderTopColor: "#333",
+                            borderRadius: "50%",
+                            display: "inline-block",
+                            animation: "cm-spin 1s linear infinite",
+                          }}
+                        />
+                        <span>処理中…</span>
+                      </>
+                    ) : (
+                      "支払う"
+                    )}
+                  </button>
+                );
+              })()}
+
+              <p style={{ color: "#808080" }}>この決済は外部決済サービス「Square」によって行われます</p>
+              <p style={{ color: "#808080" }}>決済には数秒〜数十秒ほど時間がかかる場合があります。</p>
             </div>
-          ) : (
-            <div style={{ padding: "12px" }}>
-              <p
-                style={{
-                  textAlign: "center",
-                  fontSize: 22,
-                  fontWeight: "bold",
-                  margin: "16px auto",
-                  color: "red",
-                }}
-              >
-                決済に失敗しました
-              </p>
-              {paymentOutcome.orderId && (
+          )}
+        </>
+      )
+      }
+      {
+        state.step === "paymentResult" && (
+          <>
+            {paymentOutcome.ok ? (
+              <div style={{ padding: "12px" }}>
                 <p
-                  style={{ textAlign: "center", fontSize: 24, margin: "18px" }}
-                >
-                  予約時刻：
-                  <b>
-                    {paymentOutcome.displayReserved ??
-                      formatReservedTimeHHmm(parseReservedToDate(selectedTime))}
-                  </b>
-                </p>
-              )}
-              <p style={{ textAlign: "center", fontSize: 16, margin: "6px" }}>
-                {paymentOutcome.error || "不明なエラー"}
-              </p>
-              <div style={{ textAlign: "center", marginTop: 16 }}>
-                <button
                   style={{
-                    width: 160,
-                    height: 44,
-                    fontSize: 18,
-                    marginRight: 10,
-                  }}
-                  onClick={() => {
-                    setPaymentOutcome({
-                      ok: false,
-                      orderId: null,
-                      error: null,
-                      receiptUrl: null,
-                      displayReserved: null,
-                    });
-                    dispatch({ type: "GOTO", step: "cart" });
+                    textAlign: "center",
+                    fontSize: 22,
+                    fontWeight: "bold",
+                    margin: "16px auto",
                   }}
                 >
-                  カートに戻る
-                </button>
-                <button
-                  style={{ width: 160, height: 44, fontSize: 18 }}
-                  onClick={() => {
-                    setPaymentOutcome({
-                      ok: false,
-                      orderId: null,
-                      error: null,
-                      receiptUrl: null,
-                      displayReserved: null,
-                    });
-                    dispatch({ type: "GOTO", step: "payment" });
-                  }}
-                >
-                  再試行
-                </button>
+                  決済が完了しました
+                </p>
+                <p style={{ textAlign: "center", fontSize: 18, margin: "6px" }}>
+                  注文番号：<b>{paymentOutcome.orderId}</b>
+                </p>
+                {paymentOutcome.receiptUrl && (
+                  <p style={{ textAlign: "center", margin: "6px" }}>
+                    <a
+                      href={paymentOutcome.receiptUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      レシートを開く
+                    </a>
+                  </p>
+                )}
+                <div style={{ textAlign: "center", marginTop: 16 }}>
+                  <button
+                    style={{ width: 160, height: 44, fontSize: 18 }}
+                    onClick={() => dispatch({ type: "GOTO", step: "numberTag" })}
+                  >
+                    番号札を表示
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-        </>
-      )}
-      {state.step === "numberTag" && (
-        <>
-          <p
-            style={{
-              textAlign: "center",
-              fontSize: "22px",
-              fontWeight: "bold",
-              margin: "16px auto",
-            }}
-          >
-            ご注文ありがとうございます！
-          </p>
-          <p
-            style={{
-              textAlign: "center",
-              fontSize: "20px",
-              margin: "16px 0px 2px 0px",
-            }}
-          >
-            注文番号
-          </p>
-          <p
-            style={{
-              textAlign: "center",
-              fontSize: "60px",
-              fontWeight: "bold",
-              margin: "2px",
-            }}
-          >
-            {paymentOutcome.orderId ?? "NNNNN"}
-          </p>
-          {paymentOutcome.displayReserved && (
-            <p style={{ textAlign: "center", fontSize: 24, margin: "16px 0" }}>
-              予約日時：{paymentOutcome.displayReserved}
+            ) : (
+              <div style={{ padding: "12px" }}>
+                <p
+                  style={{
+                    textAlign: "center",
+                    fontSize: 22,
+                    fontWeight: "bold",
+                    margin: "16px auto",
+                    color: "red",
+                  }}
+                >
+                  決済に失敗しました
+                </p>
+                {paymentOutcome.orderId && (
+                  <p
+                    style={{ textAlign: "center", fontSize: 24, margin: "18px" }}
+                  >
+                    予約時刻：
+                    <b>
+                      {paymentOutcome.displayReserved ??
+                        formatReservedTimeHHmm(parseReservedToDate(selectedTime))}
+                    </b>
+                  </p>
+                )}
+                <p style={{ textAlign: "center", fontSize: 16, margin: "6px" }}>
+                  {paymentOutcome.error || "不明なエラー"}
+                </p>
+                <div style={{ textAlign: "center", marginTop: 16 }}>
+                  <button
+                    style={{
+                      width: 160,
+                      height: 44,
+                      fontSize: 18,
+                      marginRight: 10,
+                    }}
+                    onClick={() => {
+                      setPaymentOutcome({
+                        ok: false,
+                        orderId: null,
+                        error: null,
+                        receiptUrl: null,
+                        displayReserved: null,
+                      });
+                      dispatch({ type: "GOTO", step: "cart" });
+                    }}
+                  >
+                    カートに戻る
+                  </button>
+                  <button
+                    style={{ width: 160, height: 44, fontSize: 18 }}
+                    onClick={() => {
+                      setPaymentOutcome({
+                        ok: false,
+                        orderId: null,
+                        error: null,
+                        receiptUrl: null,
+                        displayReserved: null,
+                      });
+                      dispatch({ type: "GOTO", step: "payment" });
+                    }}
+                  >
+                    再試行
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )
+      }
+      {
+        state.step === "numberTag" && (
+          <>
+            <p
+              style={{
+                textAlign: "center",
+                fontSize: "22px",
+                fontWeight: "bold",
+                margin: "16px auto",
+              }}
+            >
+              ご注文ありがとうございます！
             </p>
-          )}
-          <Order cart={state.cart} price={prices} names={itemNames} />
-        </>
-      )}
-      {state.step !== "payment" &&
+            <p
+              style={{
+                textAlign: "center",
+                fontSize: "20px",
+                margin: "16px 0px 2px 0px",
+              }}
+            >
+              注文番号
+            </p>
+            <p
+              style={{
+                textAlign: "center",
+                fontSize: "60px",
+                fontWeight: "bold",
+                margin: "2px",
+              }}
+            >
+              {paymentOutcome.orderId ?? "NNNNN"}
+            </p>
+            {paymentOutcome.displayReserved && (
+              <p style={{ textAlign: "center", fontSize: 24, margin: "16px 0" }}>
+                予約日時：{paymentOutcome.displayReserved}
+              </p>
+            )}
+            <Order cart={state.cart} price={prices} names={itemNames} />
+          </>
+        )
+      }
+      {
+        state.step !== "payment" &&
         state.step !== "paymentResult" &&
         state.step !== "complete" &&
         state.step !== "title" &&
@@ -1235,14 +1300,15 @@ export const App = () => {
               next={next}
               goto={goto}
               currentStep={state.step}
-              //WARNIG:本番はtestTimeはfalse、テスト時はgetCurrentTestDate()にする
+              //WARNING:本番はtestTimeはfalse、テスト時はgetCurrentTestDate()にする
               testTime={false}
               numOfChosenMenu={calculateSumInMenu()}
               numOfOrderedDrinks={calculateNumberOfDrinksInMenu()}
               difference={calculateDifferenceOfDrinks()}
             />
           </footer>
-        )}
+        )
+      }
     </>
   );
 };
