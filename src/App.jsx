@@ -1312,15 +1312,3 @@ export const App = () => {
     </>
   );
 };
-
-
-//BlueArchive 〜 Trinity General School 
-//Mika.Misono, Seia.Yurizono, Nagisa.Kirifuji, Ichika.Nakamasa, Hasumi.Hanekawa
-
-//Gakusai App Made By
-//Kota.Rouko.Ichikawa, Hikaru.Keiron.Takano, Ryosuke.Hrs.Nagashima
-
-//2025.10.17
-
-
-//学祭お疲れ様でした！！
